@@ -19,10 +19,14 @@ function AgentListItem({
   isSelected: boolean;
   onClick: () => void;
 }) {
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     idle: 'text-green-500',
+    running: 'text-green-500',
     processing: 'text-yellow-500',
+    starting: 'text-yellow-500',
+    stopping: 'text-yellow-500',
     stopped: 'text-red-500',
+    error: 'text-red-500',
   };
 
   return (
@@ -43,7 +47,7 @@ function AgentListItem({
             : 'No activity'}
         </p>
       </div>
-      <Circle className={`w-2.5 h-2.5 fill-current shrink-0 ${statusColors[agent.status]}`} />
+      <Circle className={`w-2.5 h-2.5 fill-current shrink-0 ${statusColors[agent.status] || 'text-gray-500'}`} />
     </button>
   );
 }

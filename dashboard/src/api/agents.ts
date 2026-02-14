@@ -9,8 +9,8 @@ const api = axios.create({
 });
 
 export async function listAgents(): Promise<Agent[]> {
-  const response = await api.get<Agent[]>('/api/agents');
-  return response.data;
+  const response = await api.get<{ agents: Agent[] }>('/api/agents');
+  return response.data.agents;
 }
 
 export async function getAgent(id: string): Promise<Agent> {

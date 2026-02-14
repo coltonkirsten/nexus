@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Circle, Trash2, MessageSquare, ListTodo, RotateCcw } from 'lucide-react';
+import { Send, Circle, Trash2, MessageSquare, ListTodo, RotateCcw, Play, Square } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Agent, LogEntry, ConversationMessage } from '../types/agent';
-import { sendMessage, sendConversationMessage, getSessionInfo, clearSession } from '../api/agents';
+import { sendMessage, sendConversationMessage, getSessionInfo, clearSession, startAgent, stopAgent } from '../api/agents';
 import { useAgentLogs } from '../hooks/useAgentLogs';
 
 interface ActivityTabProps {
@@ -12,22 +12,30 @@ interface ActivityTabProps {
 type ActivityMode = 'task' | 'conversation';
 
 function StatusIndicator({ status }: { status: Agent['status'] }) {
-  const colors = {
+  const colors: Record<string, string> = {
     idle: 'text-green-500',
+    running: 'text-green-500',
     processing: 'text-yellow-500',
+    starting: 'text-yellow-500',
+    stopping: 'text-yellow-500',
     stopped: 'text-red-500',
+    error: 'text-red-500',
   };
 
-  const labels = {
+  const labels: Record<string, string> = {
     idle: 'Idle',
+    running: 'Running',
     processing: 'Processing',
+    starting: 'Starting...',
+    stopping: 'Stopping...',
     stopped: 'Stopped',
+    error: 'Error',
   };
 
   return (
     <div className="flex items-center gap-2">
-      <Circle className={`w-3 h-3 fill-current ${colors[status]}`} />
-      <span className="text-sm text-gray-400">{labels[status]}</span>
+      <Circle className={`w-3 h-3 fill-current ${colors[status] || 'text-gray-500'}`} />
+      <span className="text-sm text-gray-400">{labels[status] || status}</span>
     </div>
   );
 }
@@ -179,6 +187,24 @@ export function ActivityTab({ agent }: ActivityTabProps) {
   const queryClient = useQueryClient();
   const { logs, isConnected, error, clearLogs } = useAgentLogs(agent.id);
 
+  const isRunning = agent.status === 'running' || agent.status === 'idle' || agent.status === 'processing';
+  const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
+
+  // Start/stop mutations
+  const startMutation = useMutation({
+    mutationFn: () => startAgent(agent.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: () => stopAgent(agent.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
   // Fetch session info
   const { data: sessionInfo } = useQuery({
     queryKey: ['session', agent.id],
@@ -318,6 +344,25 @@ export function ActivityTab({ agent }: ActivityTabProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
         <div className="flex items-center gap-4">
           <StatusIndicator status={agent.status} />
+          {isRunning ? (
+            <button
+              onClick={() => stopMutation.mutate()}
+              disabled={isTransitioning || stopMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-900/20 border border-red-800 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Square className="w-3.5 h-3.5" />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={() => startMutation.mutate()}
+              disabled={isTransitioning || startMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-400 hover:text-green-300 hover:bg-green-900/20 border border-green-800 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Start
+            </button>
+          )}
           <ModeToggle mode={mode} onModeChange={handleModeChange} />
         </div>
         <div className="flex items-center gap-4">
@@ -452,13 +497,13 @@ export function ActivityTab({ agent }: ActivityTabProps) {
                 ? 'Send a task to the agent...'
                 : 'Type a message...'
             }
-            disabled={agent.status === 'stopped'}
+            disabled={!isRunning}
             className="flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
             rows={2}
           />
           <button
             type="submit"
-            disabled={!message.trim() || isPending || agent.status === 'stopped'}
+            disabled={!message.trim() || isPending || !isRunning}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors self-end"
           >
             <Send className="w-5 h-5" />

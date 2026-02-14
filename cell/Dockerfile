@@ -1,4 +1,18 @@
 # NEXUS Cell - Autonomous Agent Container
+
+# --- Stage 1: Build the TypeScript engine ---
+FROM node:22-bookworm-slim AS builder
+
+WORKDIR /build
+
+COPY ./engine/package*.json ./
+RUN npm install
+
+COPY ./engine/tsconfig.json ./
+COPY ./engine/src/ ./src/
+RUN npm run build
+
+# --- Stage 2: Runtime image ---
 FROM debian:bookworm-slim
 
 # Prevent interactive prompts during package installation
@@ -33,12 +47,12 @@ WORKDIR /workspace
 # Copy engine code (package.json first for caching)
 COPY --chown=agent:agent ./engine/package*.json /opt/engine/
 
-# Install engine dependencies
+# Install production dependencies only
 WORKDIR /opt/engine
-RUN npm install
+RUN npm install --omit=dev
 
-# Copy compiled engine code
-COPY --chown=agent:agent ./engine/dist/ /opt/engine/dist/
+# Copy compiled engine code from builder stage
+COPY --chown=agent:agent --from=builder /build/dist/ /opt/engine/dist/
 
 # Create ledger directory structure
 RUN mkdir -p /ledger/memory /ledger/skills && chown -R agent:agent /ledger
