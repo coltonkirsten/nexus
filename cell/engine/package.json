@@ -1,0 +1,26 @@
+{
+  "name": "nexus-cell-engine",
+  "version": "1.0.0",
+  "description": "NEXUS Cell Engine - Autonomous Agent Runtime",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node main.js",
+    "dev": "tsc && node main.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.0",
+    "express": "^4.21.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

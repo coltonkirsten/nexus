@@ -1,0 +1,631 @@
+import express, { Request, Response } from "express";
+import cors from "cors";
+import { query } from "@anthropic-ai/claude-code";
+import { readFile, readdir, stat, writeFile, unlink, appendFile } from "fs/promises";
+import { join } from "path";
+
+// Session persistence path
+const SESSION_FILE_PATH = "/ledger/session_id";
+
+// Constants
+const DEFAULT_TASK_TIMEOUT = 600000; // 10 minutes
+const SHUTDOWN_GRACE_PERIOD = 30000; // 30 seconds
+
+// Types
+interface MessageRequest {
+  message: string;
+  config?: AgentConfig;
+  sessionPersistence?: boolean;
+  timeout?: number; // Task timeout in milliseconds
+}
+
+interface AgentConfig {
+  model?: string;
+  maxTurns?: number;
+}
+
+interface SessionInfo {
+  sessionId: string | null;
+  persistenceEnabled: boolean;
+  filePath: string;
+}
+
+interface LogEntry {
+  timestamp: string;
+  type: string;
+  data: unknown;
+}
+
+interface SkillMetadata {
+  name: string;
+  description: string;
+  path: string;
+}
+
+// In-memory log storage
+const logs: LogEntry[] = [];
+const LOG_RETENTION = parseInt(process.env.LOG_RETENTION || "1000", 10);
+const LOG_PERSISTENCE_PATH = "/ledger/logs.jsonl";
+const LOG_PERSISTENCE_ENABLED = process.env.LOG_PERSISTENCE === "true";
+
+// Token usage tracking
+interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  invocationCount: number;
+  sessionStartTime: string;
+}
+
+let tokenUsage: TokenUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+  invocationCount: 0,
+  sessionStartTime: new Date().toISOString(),
+};
+
+// Current session state
+let currentSessionId: string | null = null;
+let sessionPersistenceEnabled = false;
+
+// Task running state for graceful shutdown
+let isTaskRunning = false;
+let shutdownRequested = false;
+
+// SSE clients for streaming
+const sseClients: Set<Response> = new Set();
+
+async function persistLogEntry(entry: LogEntry): Promise<void> {
+  if (!LOG_PERSISTENCE_ENABLED) return;
+  try {
+    await appendFile(LOG_PERSISTENCE_PATH, JSON.stringify(entry) + "\n", "utf-8");
+  } catch {
+    // Silently fail if persistence is not available
+  }
+}
+
+function addLog(type: string, data: unknown): void {
+  const entry: LogEntry = {
+    timestamp: new Date().toISOString(),
+    type,
+    data,
+  };
+  logs.push(entry);
+  if (logs.length > LOG_RETENTION) {
+    logs.shift();
+  }
+  // Broadcast to SSE clients
+  broadcastToClients(entry);
+  // Persist to file if enabled
+  persistLogEntry(entry).catch(() => {});
+}
+
+function broadcastToClients(entry: LogEntry): void {
+  const message = `data: ${JSON.stringify(entry)}\n\n`;
+  for (const client of sseClients) {
+    client.write(message);
+  }
+}
+
+async function readFileIfExists(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+async function loadSessionId(): Promise<string | null> {
+  try {
+    const sessionId = await readFile(SESSION_FILE_PATH, "utf-8");
+    return sessionId.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveSessionId(sessionId: string): Promise<void> {
+  await writeFile(SESSION_FILE_PATH, sessionId, "utf-8");
+  addLog("session_saved", { sessionId });
+}
+
+async function clearSessionFile(): Promise<boolean> {
+  try {
+    await unlink(SESSION_FILE_PATH);
+    currentSessionId = null;
+    addLog("session_cleared", { filePath: SESSION_FILE_PATH });
+    return true;
+  } catch {
+    // File might not exist, which is fine
+    currentSessionId = null;
+    return false;
+  }
+}
+
+function parseFrontmatter(content: string): Record<string, string> {
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) return {};
+
+  const frontmatter: Record<string, string> = {};
+  const lines = frontmatterMatch[1].split("\n");
+  for (const line of lines) {
+    const colonIndex = line.indexOf(":");
+    if (colonIndex > 0) {
+      const key = line.slice(0, colonIndex).trim();
+      const value = line.slice(colonIndex + 1).trim();
+      frontmatter[key] = value;
+    }
+  }
+  return frontmatter;
+}
+
+async function parseSkillsIndex(): Promise<SkillMetadata[]> {
+  const skills: SkillMetadata[] = [];
+  const skillsDir = "/ledger/skills";
+
+  try {
+    const entries = await readdir(skillsDir);
+    for (const entry of entries) {
+      const skillPath = join(skillsDir, entry);
+      const skillStat = await stat(skillPath);
+      if (skillStat.isDirectory()) {
+        const skillFile = join(skillPath, "SKILL.md");
+        const content = await readFileIfExists(skillFile);
+        if (content) {
+          const frontmatter = parseFrontmatter(content);
+          skills.push({
+            name: frontmatter.name || entry,
+            description: frontmatter.description || "",
+            path: skillPath,
+          });
+        }
+      }
+    }
+  } catch {
+    addLog("warning", "Could not read skills directory");
+  }
+
+  return skills;
+}
+
+async function assembleSystemPrompt(): Promise<string> {
+  const parts: string[] = [];
+
+  // Read identity
+  const identity = await readFileIfExists("/ledger/identity.md");
+  if (identity) {
+    parts.push("# Identity\n\n" + identity);
+  }
+
+  // Read memory index
+  const memory = await readFileIfExists("/ledger/memory/index.md");
+  if (memory) {
+    parts.push("# Memory\n\n" + memory);
+  }
+
+  // Parse skills
+  const skills = await parseSkillsIndex();
+  if (skills.length > 0) {
+    const skillsSection = skills
+      .map((s) => `- **${s.name}**: ${s.description}`)
+      .join("\n");
+    parts.push("# Available Skills\n\n" + skillsSection);
+  }
+
+  if (parts.length === 0) {
+    return "You are an autonomous agent running in a NEXUS Cell. Complete tasks efficiently and report your progress.";
+  }
+
+  return parts.join("\n\n---\n\n");
+}
+
+// Create a timeout promise for task enforcement
+function createTimeoutPromise(timeoutMs: number, abortController: AbortController): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      abortController.abort();
+      reject(new Error(`Task timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+}
+
+async function runAgent(
+  message: string,
+  config: AgentConfig = {},
+  sessionPersistence: boolean = false,
+  taskTimeout: number = DEFAULT_TASK_TIMEOUT
+): Promise<void> {
+  // Set task running state
+  isTaskRunning = true;
+  sessionPersistenceEnabled = sessionPersistence;
+
+  // Create abort controller for timeout
+  const abortController = new AbortController();
+
+  // Load existing session ID if persistence is enabled
+  let resumeSessionId: string | null = null;
+  if (sessionPersistence) {
+    resumeSessionId = await loadSessionId();
+    if (resumeSessionId) {
+      currentSessionId = resumeSessionId;
+      addLog("session_loaded", { sessionId: resumeSessionId });
+    }
+  }
+
+  addLog("agent_start", {
+    message,
+    config,
+    sessionPersistence,
+    resumingSession: !!resumeSessionId,
+    timeout: taskTimeout
+  });
+
+  try {
+    const systemPrompt = await assembleSystemPrompt();
+    addLog("system_prompt_assembled", {
+      length: systemPrompt.length,
+      preview: systemPrompt.slice(0, 200),
+    });
+
+    const allowedTools: (
+      | "Bash"
+      | "Read"
+      | "Write"
+      | "Edit"
+      | "Glob"
+      | "Grep"
+    )[] = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"];
+
+    // Build query options
+    const queryOptions: Record<string, unknown> = {
+      customSystemPrompt: systemPrompt,
+      allowedTools,
+      permissionMode: "bypassPermissions",
+      model: config.model || "claude-sonnet-4-5-20250929",
+      maxTurns: config.maxTurns || 50,
+      cwd: "/workspace",
+      abortSignal: abortController.signal,
+    };
+
+    // Add resume option if we have a session to resume
+    if (sessionPersistence && resumeSessionId) {
+      queryOptions.resume = resumeSessionId;
+    }
+
+    // Track tokens for this invocation
+    let invocationInputTokens = 0;
+    let invocationOutputTokens = 0;
+
+    // Create the agent task promise
+    const agentTask = async () => {
+      for await (const agentMessage of query({
+        prompt: message,
+        options: queryOptions,
+      })) {
+        addLog("agent_message", agentMessage);
+
+        // Extract token usage from result messages
+        if (
+          agentMessage &&
+          typeof agentMessage === "object" &&
+          "type" in agentMessage &&
+          agentMessage.type === "result" &&
+          "usage" in agentMessage &&
+          agentMessage.usage &&
+          typeof agentMessage.usage === "object"
+        ) {
+          const usage = agentMessage.usage as { input_tokens?: number; output_tokens?: number };
+          if (typeof usage.input_tokens === "number") {
+            invocationInputTokens += usage.input_tokens;
+            tokenUsage.inputTokens += usage.input_tokens;
+          }
+          if (typeof usage.output_tokens === "number") {
+            invocationOutputTokens += usage.output_tokens;
+            tokenUsage.outputTokens += usage.output_tokens;
+          }
+          tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
+        }
+
+        // Extract session_id from system init messages
+        if (
+          sessionPersistence &&
+          agentMessage &&
+          typeof agentMessage === "object" &&
+          "type" in agentMessage &&
+          agentMessage.type === "system" &&
+          "subtype" in agentMessage &&
+          agentMessage.subtype === "init" &&
+          "session_id" in agentMessage &&
+          typeof agentMessage.session_id === "string"
+        ) {
+          const newSessionId = agentMessage.session_id;
+          if (newSessionId !== currentSessionId) {
+            currentSessionId = newSessionId;
+            await saveSessionId(newSessionId);
+          }
+        }
+      }
+    };
+
+    // Race between task completion and timeout
+    await Promise.race([
+      agentTask(),
+      createTimeoutPromise(taskTimeout, abortController)
+    ]);
+
+    // Update invocation count
+    tokenUsage.invocationCount++;
+
+    // Log token usage for this invocation
+    addLog("token_usage", {
+      invocation: {
+        inputTokens: invocationInputTokens,
+        outputTokens: invocationOutputTokens,
+        totalTokens: invocationInputTokens + invocationOutputTokens,
+      },
+      cumulative: {
+        inputTokens: tokenUsage.inputTokens,
+        outputTokens: tokenUsage.outputTokens,
+        totalTokens: tokenUsage.totalTokens,
+        invocationCount: tokenUsage.invocationCount,
+      },
+    });
+
+    addLog("agent_complete", {
+      success: true,
+      sessionId: currentSessionId,
+      sessionPersistence
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    const isTimeout = errorMessage.includes("timed out");
+    const isAborted = errorMessage.includes("aborted") || abortController.signal.aborted;
+
+    addLog("agent_error", {
+      error: errorMessage,
+      isTimeout,
+      isAborted,
+      recovered: true
+    });
+
+    // Log specific error types for better debugging
+    if (isTimeout) {
+      addLog("task_timeout", {
+        timeout: taskTimeout,
+        message: `Task exceeded timeout of ${taskTimeout}ms`
+      });
+    }
+
+    // Don't rethrow - return to idle state for error recovery
+    addLog("agent_recovered", {
+      message: "Agent returned to idle state after error"
+    });
+  } finally {
+    // Always reset task running state
+    isTaskRunning = false;
+
+    // If shutdown was requested while task was running, exit now
+    if (shutdownRequested) {
+      addLog("shutdown_after_task", {
+        message: "Task completed, proceeding with shutdown"
+      });
+      process.exit(0);
+    }
+  }
+}
+
+// Express app setup
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Health endpoint
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    version: "1.0.0",
+  });
+});
+
+// SSE endpoint for streaming logs
+app.get("/logs", (req: Request, res: Response) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  // Send existing logs
+  for (const log of logs) {
+    res.write(`data: ${JSON.stringify(log)}\n\n`);
+  }
+
+  // Add client to SSE set
+  sseClients.add(res);
+
+  // Remove client on disconnect
+  req.on("close", () => {
+    sseClients.delete(res);
+  });
+});
+
+// Get logs (non-streaming)
+app.get("/logs/history", (_req: Request, res: Response) => {
+  res.json(logs);
+});
+
+// Get log statistics
+app.get("/logs/stats", (_req: Request, res: Response) => {
+  const logCount = logs.length;
+  const oldestTimestamp = logs.length > 0 ? logs[0].timestamp : null;
+  const newestTimestamp = logs.length > 0 ? logs[logs.length - 1].timestamp : null;
+
+  res.json({
+    count: logCount,
+    retention: LOG_RETENTION,
+    persistenceEnabled: LOG_PERSISTENCE_ENABLED,
+    persistencePath: LOG_PERSISTENCE_PATH,
+    oldestTimestamp,
+    newestTimestamp,
+  });
+});
+
+// Get token usage
+app.get("/tokens", (_req: Request, res: Response) => {
+  res.json({
+    inputTokens: tokenUsage.inputTokens,
+    outputTokens: tokenUsage.outputTokens,
+    totalTokens: tokenUsage.totalTokens,
+    invocationCount: tokenUsage.invocationCount,
+    sessionStartTime: tokenUsage.sessionStartTime,
+  });
+});
+
+// Get system prompt components
+app.get("/system-prompt", async (_req: Request, res: Response) => {
+  try {
+    const identity = await readFileIfExists("/ledger/identity.md");
+    const memory = await readFileIfExists("/ledger/memory/index.md");
+    const skills = await parseSkillsIndex();
+    const assembled = await assembleSystemPrompt();
+
+    res.json({
+      assembled,
+      identity: identity || "",
+      memory: memory || "",
+      skills,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to get system prompt" });
+  }
+});
+
+// Message endpoint
+app.post("/message", async (req: Request, res: Response) => {
+  const { message, config, sessionPersistence, timeout } = req.body as MessageRequest;
+
+  if (!message || typeof message !== "string") {
+    res.status(400).json({ error: "Message is required" });
+    return;
+  }
+
+  // Check for API key
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
+    return;
+  }
+
+  // Use provided timeout or default
+  const taskTimeout = typeof timeout === "number" && timeout > 0 ? timeout : DEFAULT_TASK_TIMEOUT;
+
+  // Start agent in background
+  res.json({
+    status: "started",
+    message: "Agent task started. Monitor /logs for progress.",
+    sessionPersistence: !!sessionPersistence,
+    timeout: taskTimeout,
+  });
+
+  // Run agent (don't await - let it run in background)
+  runAgent(message, config, !!sessionPersistence, taskTimeout).catch((error) => {
+    addLog("agent_fatal_error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+});
+
+// Get current session info
+app.get("/session", async (_req: Request, res: Response) => {
+  try {
+    const storedSessionId = await loadSessionId();
+    const sessionInfo: SessionInfo = {
+      sessionId: currentSessionId || storedSessionId,
+      persistenceEnabled: sessionPersistenceEnabled,
+      filePath: SESSION_FILE_PATH,
+    };
+    res.json(sessionInfo);
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to get session info",
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Clear session file
+app.post("/session/clear", async (_req: Request, res: Response) => {
+  try {
+    const existed = await clearSessionFile();
+    res.json({
+      success: true,
+      message: existed
+        ? "Session cleared successfully"
+        : "No session file existed",
+      sessionId: null,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to clear session",
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// Start server
+const PORT = parseInt(process.env.ENGINE_PORT || "3100", 10);
+
+const server = app.listen(PORT, () => {
+  console.log(`NEXUS Cell Engine started on port ${PORT}`);
+  addLog("server_start", { port: PORT });
+});
+
+// Graceful shutdown handler
+function handleShutdown(signal: string): void {
+  addLog("shutdown_requested", {
+    signal,
+    taskRunning: isTaskRunning,
+    message: isTaskRunning
+      ? `Shutdown requested, waiting for task to complete (max ${SHUTDOWN_GRACE_PERIOD}ms)`
+      : "Shutting down immediately"
+  });
+  console.log(`Received ${signal}, initiating graceful shutdown...`);
+
+  shutdownRequested = true;
+
+  // Close the HTTP server to stop accepting new connections
+  server.close(() => {
+    addLog("server_closed", { message: "HTTP server closed" });
+  });
+
+  // Close all SSE connections
+  for (const client of sseClients) {
+    client.end();
+  }
+  sseClients.clear();
+
+  if (isTaskRunning) {
+    // Wait for task to complete, with a maximum timeout
+    const shutdownTimeout = setTimeout(() => {
+      addLog("shutdown_timeout", {
+        message: `Forced shutdown after ${SHUTDOWN_GRACE_PERIOD}ms grace period`
+      });
+      console.log("Forced shutdown after grace period");
+      process.exit(1);
+    }, SHUTDOWN_GRACE_PERIOD);
+
+    // The task's finally block will call process.exit(0) when it completes
+    // Clear the timeout reference to prevent it from keeping the process alive
+    shutdownTimeout.unref();
+  } else {
+    // No task running, exit immediately
+    addLog("shutdown_complete", { message: "Clean shutdown" });
+    console.log("Clean shutdown complete");
+    process.exit(0);
+  }
+}
+
+// Register signal handlers
+process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+process.on("SIGINT", () => handleShutdown("SIGINT"));

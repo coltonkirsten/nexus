@@ -1,0 +1,9 @@
+{
+  "name": "Blank",
+  "description": "A blank slate agent with no pre-configured skills. Start from scratch and build your own identity.",
+  "default_config": {
+    "model": "claude-sonnet-4-5-20250929",
+    "max_turns": 50,
+    "timeout": 600
+  }
+}
