@@ -1,4 +1,4 @@
-export type AgentStatus = 'idle' | 'processing' | 'stopped' | 'running' | 'starting' | 'stopping' | 'error';
+export type AgentStatus = 'idle' | 'processing' | 'stopped' | 'running' | 'starting' | 'stopping' | 'error' | 'created';
 
 export interface AgentConfig {
   model: string;
