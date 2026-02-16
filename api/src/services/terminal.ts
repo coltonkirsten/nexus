@@ -51,6 +51,8 @@ export async function handleTerminalConnection(ws: WebSocket, agentId: string): 
       AttachStdout: true,
       AttachStderr: true,
       Tty: true,
+      User: 'agent',
+      WorkingDir: '/workspace',
     });
 
     // Start the exec with a bidirectional stream

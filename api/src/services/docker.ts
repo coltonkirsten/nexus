@@ -176,6 +176,15 @@ export async function copyToContainer(
   const container = await getContainer(agentId);
   if (!container) throw new Error(`Container for agent ${agentId} not found`);
   await container.putArchive(tarStream, { path: containerPath });
+
+  // Fix ownership so agent user can access uploaded files
+  if (containerPath.startsWith('/workspace') || containerPath.startsWith('/ledger')) {
+    const exec = await container.exec({
+      Cmd: ['chown', '-R', 'agent:agent', containerPath],
+      User: 'root',
+    });
+    await exec.start({ Detach: true });
+  }
 }
 
 export async function copyFromContainer(
