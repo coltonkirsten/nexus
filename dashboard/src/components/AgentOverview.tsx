@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Cpu, Play, Square, Trash2, Pencil, Check, X } from 'lucide-react';
+import { Plus, Cpu, Play, Square, Trash2, Pencil, Check, X, Loader2 } from 'lucide-react';
 import type { Agent } from '../types/agent';
 import { listAgents, startAgent, stopAgent, deleteAgent, renameAgent } from '../api/agents';
 import { CreateAgentModal } from './CreateAgentModal';
+import { ConfirmModal } from './ConfirmModal';
 
 function AgentCard({ agent }: { agent: Agent }) {
   const navigate = useNavigate();
@@ -12,13 +13,12 @@ function AgentCard({ agent }: { agent: Agent }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(agent.name);
 
-  const isRunning = agent.status === 'running' || agent.status === 'idle' || agent.status === 'processing';
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const isRunning = agent.status === 'running';
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
 
   const statusColors: Record<string, string> = {
-    idle: 'bg-emerald-400',
     running: 'bg-emerald-400',
-    processing: 'bg-yellow-400',
     starting: 'bg-yellow-400',
     stopping: 'bg-yellow-400',
     stopped: 'bg-red-400',
@@ -27,9 +27,7 @@ function AgentCard({ agent }: { agent: Agent }) {
   };
 
   const statusLabels: Record<string, string> = {
-    idle: 'Idle',
     running: 'Running',
-    processing: 'Processing',
     starting: 'Starting',
     stopping: 'Stopping',
     stopped: 'Stopped',
@@ -62,9 +60,7 @@ function AgentCard({ agent }: { agent: Agent }) {
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm(`Delete agent "${agent.name}"?`)) {
-      deleteMutation.mutate();
-    }
+    setShowDeleteConfirm(true);
   };
 
   const handleStartStop = (e: React.MouseEvent) => {
@@ -158,7 +154,13 @@ function AgentCard({ agent }: { agent: Agent }) {
               : 'text-emerald-400 border-emerald-800/50 hover:bg-emerald-500/10'
           }`}
         >
-          {isRunning ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+          {(startMutation.isPending || stopMutation.isPending) ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : isRunning ? (
+            <Square className="w-3 h-3" />
+          ) : (
+            <Play className="w-3 h-3" />
+          )}
           {isRunning ? 'Stop' : 'Start'}
         </button>
         {!isRenaming && (
@@ -179,6 +181,19 @@ function AgentCard({ agent }: { agent: Agent }) {
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          deleteMutation.mutate();
+        }}
+        title="Delete Agent"
+        message={`Are you sure you want to delete "${agent.name}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

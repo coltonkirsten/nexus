@@ -30,6 +30,9 @@ export function useAgentLogs(
       eventSourceRef.current.close();
     }
 
+    // Clear logs before reconnecting — engine replays full history
+    setLogs([]);
+
     const url = getLogsStreamUrl(agentId);
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;

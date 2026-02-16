@@ -14,8 +14,8 @@ export async function listAgents(): Promise<Agent[]> {
 }
 
 export async function getAgent(id: string): Promise<Agent> {
-  const response = await api.get<Agent>(`/api/agents/${id}`);
-  return response.data;
+  const response = await api.get<{ agent: Agent }>(`/api/agents/${id}`);
+  return response.data.agent;
 }
 
 export async function createAgent(data: CreateAgentRequest): Promise<Agent> {
@@ -81,11 +81,11 @@ export async function getSystemPrompt(agentId: string): Promise<SystemPromptData
 }
 
 export async function updateIdentity(agentId: string, content: string): Promise<void> {
-  await api.put(`/api/agents/${agentId}/identity`, { content });
+  await api.put(`/api/agents/${agentId}/ledger/file?path=identity.md`, { content });
 }
 
 export async function updateMemory(agentId: string, content: string): Promise<void> {
-  await api.put(`/api/agents/${agentId}/memory`, { content });
+  await api.put(`/api/agents/${agentId}/ledger/file?path=memory/index.md`, { content });
 }
 
 // History API
@@ -179,4 +179,44 @@ export async function updateSkill(
 
 export async function deleteSkill(agentId: string, skillName: string): Promise<void> {
   await api.delete(`/api/agents/${agentId}/skills/${encodeURIComponent(skillName)}`);
+}
+
+// Workspace API
+
+export interface FileEntry {
+  name: string;
+  type: 'file' | 'directory';
+  path: string;
+  size?: number;
+  children?: FileEntry[];
+}
+
+export async function getWorkspaceTree(agentId: string): Promise<{ entries: FileEntry[] }> {
+  const response = await api.get<{ entries: FileEntry[] }>(`/api/agents/${agentId}/workspace`);
+  return response.data;
+}
+
+export async function getWorkspaceFile(agentId: string, path: string): Promise<{ content: string }> {
+  const response = await api.get<{ content: string }>(`/api/agents/${agentId}/workspace/file`, {
+    params: { path },
+  });
+  return response.data;
+}
+
+// Ledger API
+
+export async function getLedgerTree(agentId: string): Promise<{ entries: FileEntry[] }> {
+  const response = await api.get<{ entries: FileEntry[] }>(`/api/agents/${agentId}/ledger`);
+  return response.data;
+}
+
+export async function getLedgerFile(agentId: string, path: string): Promise<{ content: string }> {
+  const response = await api.get<{ content: string }>(`/api/agents/${agentId}/ledger/file`, {
+    params: { path },
+  });
+  return response.data;
+}
+
+export async function saveLedgerFile(agentId: string, path: string, content: string): Promise<void> {
+  await api.put(`/api/agents/${agentId}/ledger/file?path=${encodeURIComponent(path)}`, { content });
 }

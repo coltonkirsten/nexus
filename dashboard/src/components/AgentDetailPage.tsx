@@ -2,14 +2,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import type { Agent } from '../types/agent';
-import { listAgents } from '../api/agents';
+import { getAgent } from '../api/agents';
 import { AgentDetail } from './AgentDetail';
 
 function StatusDot({ status }: { status: Agent['status'] }) {
   const colors: Record<string, string> = {
-    idle: 'bg-emerald-400',
     running: 'bg-emerald-400',
-    processing: 'bg-yellow-400',
     starting: 'bg-yellow-400',
     stopping: 'bg-yellow-400',
     stopped: 'bg-red-400',
@@ -18,9 +16,7 @@ function StatusDot({ status }: { status: Agent['status'] }) {
   };
 
   const labels: Record<string, string> = {
-    idle: 'Idle',
     running: 'Running',
-    processing: 'Processing',
     starting: 'Starting',
     stopping: 'Stopping',
     stopped: 'Stopped',
@@ -28,7 +24,7 @@ function StatusDot({ status }: { status: Agent['status'] }) {
     created: 'Created',
   };
 
-  const isRunning = status === 'running' || status === 'idle' || status === 'processing';
+  const isRunning = status === 'running';
 
   return (
     <div className="flex items-center gap-2">
@@ -39,16 +35,15 @@ function StatusDot({ status }: { status: Agent['status'] }) {
 }
 
 export function AgentDetailPage() {
-  const { agentId } = useParams<{ agentId: string }>();
+  const { agentId, tab } = useParams<{ agentId: string; tab?: string }>();
   const navigate = useNavigate();
 
-  const { data: agents = [], isLoading } = useQuery<Agent[]>({
-    queryKey: ['agents'],
-    queryFn: listAgents,
+  const { data: agent, isLoading } = useQuery<Agent>({
+    queryKey: ['agent', agentId],
+    queryFn: () => getAgent(agentId!),
     refetchInterval: 5000,
+    enabled: !!agentId,
   });
-
-  const agent = agents.find((a) => a.id === agentId);
 
   if (isLoading) {
     return (
@@ -100,7 +95,7 @@ export function AgentDetailPage() {
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        <AgentDetail agent={agent} />
+        <AgentDetail agent={agent} initialTab={tab} />
       </div>
     </div>
   );

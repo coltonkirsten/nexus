@@ -1,18 +1,24 @@
-export type AgentStatus = 'idle' | 'processing' | 'stopped' | 'running' | 'starting' | 'stopping' | 'error' | 'created';
+export type AgentStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
 
 export interface AgentConfig {
-  model: string;
-  maxTurns: number;
-  timeout: number;
-  allowedTools: string[];
+  model?: string;
+  maxTurns?: number;
+  timeout?: number;
+  allowedTools?: string[];
 }
 
 export interface Agent {
   id: string;
   name: string;
+  template?: string;
+  port?: number;
+  containerId?: string;
   status: AgentStatus;
   createdAt: string;
   lastActivity?: string;
+  sessionPersistence?: boolean;
+  healthStatus?: string;
+  healthFailures?: number;
   config?: AgentConfig;
 }
 

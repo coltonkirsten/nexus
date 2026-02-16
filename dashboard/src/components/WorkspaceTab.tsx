@@ -10,56 +10,15 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import type { Agent } from '../types/agent';
+import { getWorkspaceTree, getWorkspaceFile, type FileEntry } from '../api/agents';
 
 interface WorkspaceTabProps {
   agent: Agent;
 }
 
-interface FileEntry {
-  name: string;
-  type: 'file' | 'directory';
-  path: string;
-  children?: FileEntry[];
-}
-
 interface FileTree {
   entries: FileEntry[];
 }
-
-// Mock data for development
-const MOCK_FILE_TREE: FileTree = {
-  entries: [
-    { name: 'README.md', type: 'file', path: '/workspace/README.md' },
-    { name: 'main.py', type: 'file', path: '/workspace/main.py' },
-    { name: 'config.json', type: 'file', path: '/workspace/config.json' },
-    {
-      name: 'src',
-      type: 'directory',
-      path: '/workspace/src',
-      children: [
-        { name: 'index.ts', type: 'file', path: '/workspace/src/index.ts' },
-        { name: 'utils.ts', type: 'file', path: '/workspace/src/utils.ts' },
-        {
-          name: 'components',
-          type: 'directory',
-          path: '/workspace/src/components',
-          children: [
-            { name: 'Button.tsx', type: 'file', path: '/workspace/src/components/Button.tsx' },
-            { name: 'Modal.tsx', type: 'file', path: '/workspace/src/components/Modal.tsx' },
-          ],
-        },
-      ],
-    },
-    {
-      name: 'tests',
-      type: 'directory',
-      path: '/workspace/tests',
-      children: [
-        { name: 'test_main.py', type: 'file', path: '/workspace/tests/test_main.py' },
-      ],
-    },
-  ],
-};
 
 // Simple syntax highlighting based on file extension
 function getLanguageFromPath(path: string): string {
@@ -90,7 +49,6 @@ function highlightSyntax(content: string, language: string): React.ReactNode[] {
     let highlightedLine: React.ReactNode = line;
 
     if (language === 'python') {
-      // Highlight Python keywords and strings
       highlightedLine = highlightPython(line);
     } else if (language === 'typescript' || language === 'javascript') {
       highlightedLine = highlightJS(line);
@@ -100,7 +58,7 @@ function highlightSyntax(content: string, language: string): React.ReactNode[] {
 
     return (
       <div key={index} className="flex">
-        <span className="w-12 text-right pr-4 text-gray-600 select-none shrink-0">
+        <span className="w-12 text-right pr-4 text-[#4a4a5e] select-none shrink-0">
           {index + 1}
         </span>
         <span className="flex-1">{highlightedLine}</span>
@@ -112,7 +70,6 @@ function highlightSyntax(content: string, language: string): React.ReactNode[] {
 function highlightPython(line: string): React.ReactNode {
   const comments = /#.*/g;
 
-  // Handle comments first
   const commentMatch = line.match(comments);
   if (commentMatch && commentMatch.index !== undefined) {
     const beforeComment = line.slice(0, commentMatch.index);
@@ -120,7 +77,7 @@ function highlightPython(line: string): React.ReactNode {
     return (
       <>
         {highlightPythonNonComment(beforeComment)}
-        <span className="text-gray-500">{comment}</span>
+        <span className="text-[#4a4a5e]">{comment}</span>
       </>
     );
   }
@@ -140,7 +97,7 @@ function highlightPythonNonComment(line: string): React.ReactNode {
       parts.push(line.slice(lastIndex, match.index));
     }
     parts.push(
-      <span key={match.index} className="text-purple-400">
+      <span key={match.index} className="text-indigo-400">
         {match[0]}
       </span>
     );
@@ -166,7 +123,7 @@ function highlightJS(line: string): React.ReactNode {
       parts.push(line.slice(lastIndex, match.index));
     }
     parts.push(
-      <span key={match.index} className="text-purple-400">
+      <span key={match.index} className="text-indigo-400">
         {match[0]}
       </span>
     );
@@ -181,13 +138,12 @@ function highlightJS(line: string): React.ReactNode {
 }
 
 function highlightJSON(line: string): React.ReactNode {
-  // Highlight keys and values
   const keyMatch = line.match(/^(\s*)"([^"]+)":/);
   if (keyMatch) {
     return (
       <>
         {keyMatch[1]}
-        <span className="text-blue-400">"{keyMatch[2]}"</span>
+        <span className="text-indigo-400">"{keyMatch[2]}"</span>
         :{line.slice(keyMatch[0].length)}
       </>
     );
@@ -229,30 +185,30 @@ function FileTreeItem({
     <div>
       <button
         onClick={handleClick}
-        className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-colors ${
+        className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm transition-all duration-200 rounded-lg ${
           isSelected
-            ? 'bg-blue-600/30 text-blue-300'
-            : 'text-gray-300 hover:bg-gray-700/50'
+            ? 'bg-indigo-500/20 text-indigo-300'
+            : 'text-[#e0e0e8] hover:bg-[#1a1a2e]'
         }`}
         style={{ paddingLeft }}
       >
         {isDirectory ? (
           <>
             {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
+              <ChevronDown className="w-4 h-4 text-[#4a4a5e] shrink-0" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-[#4a4a5e] shrink-0" />
             )}
             {isExpanded ? (
-              <FolderOpen className="w-4 h-4 text-yellow-500 shrink-0" />
+              <FolderOpen className="w-4 h-4 text-indigo-400 shrink-0" />
             ) : (
-              <Folder className="w-4 h-4 text-yellow-500 shrink-0" />
+              <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
             )}
           </>
         ) : (
           <>
             <span className="w-4" />
-            <File className="w-4 h-4 text-gray-400 shrink-0" />
+            <File className="w-4 h-4 text-[#7a7a8e] shrink-0" />
           </>
         )}
         <span className="truncate">{entry.name}</span>
@@ -286,51 +242,33 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch file tree
+  // Fetch file tree via API client
   const fetchFileTree = async () => {
     setIsLoadingTree(true);
     setError(null);
 
     try {
-      const response = await fetch(
-        `http://localhost:3001/api/agents/${agent.id}/workspace`
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch workspace');
-      }
-
-      const data = await response.json();
+      const data = await getWorkspaceTree(agent.id);
       setFileTree(data);
     } catch (err) {
-      console.warn('Using mock data:', err);
-      // Fall back to mock data for development
-      setFileTree(MOCK_FILE_TREE);
+      setError(err instanceof Error ? err.message : 'Failed to load workspace');
+      setFileTree(null);
     } finally {
       setIsLoadingTree(false);
     }
   };
 
-  // Fetch file content
+  // Fetch file content via API client
   const fetchFileContent = async (path: string) => {
     setIsLoadingContent(true);
     setFileContent(null);
 
     try {
-      const response = await fetch(
-        `http://localhost:3001/api/agents/${agent.id}/workspace/file?path=${encodeURIComponent(path)}`
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch file content');
-      }
-
-      const data = await response.json();
+      const data = await getWorkspaceFile(agent.id, path);
       setFileContent(data.content);
-    } catch (err) {
-      console.warn('Using mock content:', err);
-      // Mock content for development
-      setFileContent(`// Mock content for ${path}\n\nThis is placeholder content for the file.\nReplace with actual API integration.`);
+    } catch {
+      setFileContent(null);
+      setError('Failed to load file content');
     } finally {
       setIsLoadingContent(false);
     }
@@ -377,26 +315,26 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
   return (
     <div className="flex h-full">
       {/* File tree sidebar */}
-      <div className="w-64 border-r border-gray-700 flex flex-col bg-gray-900/50">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <span className="text-sm font-medium text-gray-300">Files</span>
+      <div className="w-64 border-r border-[#1e1e3a] flex flex-col bg-[#0a0a0f]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e3a]">
+          <span className="text-sm font-medium text-[#e0e0e8]">Files</span>
           <button
             onClick={fetchFileTree}
             disabled={isLoadingTree}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+            className="p-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200 disabled:opacity-50"
             title="Refresh"
           >
             <RefreshCw className={`w-4 h-4 ${isLoadingTree ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className="flex-1 overflow-y-auto py-2 px-1">
           {isLoadingTree ? (
-            <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="flex items-center justify-center h-full text-[#4a4a5e]">
               <RefreshCw className="w-5 h-5 animate-spin" />
             </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
+          ) : error && !fileTree ? (
+            <div className="flex flex-col items-center justify-center h-full text-[#4a4a5e] p-4">
               <AlertCircle className="w-8 h-8 mb-2 text-red-400" />
               <p className="text-sm text-center">{error}</p>
             </div>
@@ -412,7 +350,7 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
               />
             ))
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
+            <div className="flex items-center justify-center h-full text-[#4a4a5e]">
               No files found
             </div>
           )}
@@ -420,24 +358,24 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
       </div>
 
       {/* File viewer */}
-      <div className="flex-1 flex flex-col bg-gray-950">
+      <div className="flex-1 flex flex-col bg-[#0a0a0f]">
         {selectedFile ? (
           <>
             {/* File header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e3a]">
               <div className="flex items-center gap-2 min-w-0">
-                <File className="w-4 h-4 text-gray-400 shrink-0" />
-                <span className="text-sm text-gray-300 truncate">
+                <File className="w-4 h-4 text-[#7a7a8e] shrink-0" />
+                <span className="text-sm text-[#e0e0e8] truncate">
                   {selectedFile.path}
                 </span>
-                <span className="text-xs text-gray-500 px-2 py-0.5 bg-gray-800 rounded">
+                <span className="text-xs text-[#4a4a5e] px-2 py-0.5 bg-[#1a1a2e] rounded-xl">
                   {language}
                 </span>
               </div>
               <button
                 onClick={handleDownload}
                 disabled={!fileContent}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="w-4 h-4" />
                 Download
@@ -447,24 +385,24 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
             {/* File content */}
             <div className="flex-1 overflow-auto p-4">
               {isLoadingContent ? (
-                <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="flex items-center justify-center h-full text-[#4a4a5e]">
                   <RefreshCw className="w-5 h-5 animate-spin" />
                 </div>
               ) : fileContent !== null ? (
-                <pre className="font-mono text-sm text-gray-300 leading-relaxed">
+                <pre className="font-mono text-sm text-[#e0e0e8] leading-relaxed">
                   {highlightSyntax(fileContent, language)}
                 </pre>
               ) : (
-                <div className="flex items-center justify-center h-full text-gray-500">
+                <div className="flex items-center justify-center h-full text-[#4a4a5e]">
                   Failed to load file content
                 </div>
               )}
             </div>
           </>
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-500">
+          <div className="flex items-center justify-center h-full text-[#4a4a5e]">
             <div className="text-center">
-              <Folder className="w-12 h-12 mx-auto mb-3 text-gray-600" />
+              <Folder className="w-12 h-12 mx-auto mb-3 text-[#1e1e3a]" />
               <p className="text-sm">Select a file to view its contents</p>
             </div>
           </div>

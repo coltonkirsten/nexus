@@ -32,7 +32,7 @@ import {
   updateSkill,
   deleteSkill,
 } from '../services/volume.js';
-import type { AgentConfig, AgentMode, MessageStatus } from '../types.js';
+import type { AgentConfig, MessageStatus } from '../types.js';
 
 const router = Router();
 
@@ -107,6 +107,25 @@ router.get('/', async (_req: Request, res: Response) => {
   } catch (error) {
     console.error('Error listing agents:', error);
     res.status(500).json({ error: 'Failed to list agents' });
+  }
+});
+
+// GET /api/agents/:id - Get single agent with container status
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const status = await getContainerStatus(id);
+    res.json({ agent: { ...agent, status } });
+  } catch (error) {
+    console.error('Error getting agent:', error);
+    res.status(500).json({ error: 'Failed to get agent' });
   }
 });
 
@@ -296,41 +315,11 @@ router.get('/:id/status', async (req: Request, res: Response) => {
       healthStatus: agent.healthStatus || 'unknown',
       port: agent.port,
       createdAt: agent.createdAt,
-      mode: agent.mode,
       sessionPersistence: agent.sessionPersistence,
     });
   } catch (error) {
     console.error('Error getting agent status:', error);
     res.status(500).json({ error: 'Failed to get agent status' });
-  }
-});
-
-// POST /api/agents/:id/mode - Switch agent mode (task/conversation)
-router.post('/:id/mode', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { mode } = req.body as { mode?: AgentMode };
-
-    if (!mode || (mode !== 'task' && mode !== 'conversation')) {
-      res.status(400).json({ error: 'Invalid mode. Must be "task" or "conversation".' });
-      return;
-    }
-
-    const agent = await getAgent(id);
-    if (!agent) {
-      res.status(404).json({ error: 'Agent not found' });
-      return;
-    }
-
-    const updated = await updateAgent(id, { mode });
-    res.json({
-      success: true,
-      agent: updated,
-      message: `Agent mode switched to "${mode}"`,
-    });
-  } catch (error) {
-    console.error('Error switching agent mode:', error);
-    res.status(500).json({ error: 'Failed to switch agent mode' });
   }
 });
 
@@ -423,55 +412,29 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
       return;
     }
 
-    // Handle based on agent mode
-    if (agent.mode === 'conversation') {
-      // Conversation mode: send directly, wait for response
-      if (agent.status !== 'running') {
-        res.status(400).json({ error: 'Agent is not running. Start the agent to use conversation mode.' });
-        return;
-      }
-
-      const engineResponse = await sendMessage(id, message, {
-        sessionPersistence: agent.sessionPersistence,
-        waitForResponse: true,
-        config: agent.config,
-      });
-
-      if (!engineResponse.success) {
-        res.status(500).json({ error: engineResponse.error || 'Failed to get response from agent' });
-        return;
-      }
-
-      // Enqueue both user message and agent response for history
-      const userMessage = await enqueueMessage(id, message, role, metadata);
-      if (engineResponse.response) {
-        await enqueueMessage(id, engineResponse.response, 'agent', { conversationMode: true });
-      }
-
-      res.json({
-        message: userMessage,
-        response: engineResponse.response,
-        mode: 'conversation',
-      });
-    } else {
-      // Task mode (default): queue message, optionally send to engine
-      const enqueuedMessage = await enqueueMessage(id, message, role, metadata);
-
-      // Try to send to engine if running
-      let engineResponse = null;
-      if (agent.status === 'running') {
-        engineResponse = await sendMessage(id, message, {
-          sessionPersistence: agent.sessionPersistence,
-          config: agent.config,
-        });
-      }
-
-      res.json({
-        message: enqueuedMessage,
-        engineResponse,
-        mode: 'task',
-      });
+    // Require agent to be running
+    if (agent.status !== 'running') {
+      res.status(400).json({ error: 'Agent is not running. Start the agent first.' });
+      return;
     }
+
+    // Record user message in queue
+    const enqueuedMessage = await enqueueMessage(id, message, role, metadata);
+
+    // Update lastActivity
+    await updateAgent(id, { lastActivity: new Date().toISOString() });
+
+    // Fire-and-forget to engine — dashboard uses SSE for real-time responses
+    sendMessage(id, message, {
+      sessionPersistence: agent.sessionPersistence,
+      config: agent.config,
+    }).catch(err => {
+      console.error('Engine message delivery failed:', err);
+    });
+
+    res.json({
+      message: enqueuedMessage,
+    });
   } catch (error) {
     console.error('Error sending message:', error);
     res.status(500).json({ error: 'Failed to send message' });

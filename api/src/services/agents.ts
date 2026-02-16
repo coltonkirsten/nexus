@@ -49,7 +49,6 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
     createdAt: new Date().toISOString(),
     port,
     status: 'created',
-    mode: config.mode || 'task',
     sessionPersistence: config.sessionPersistence ?? false,
   };
 

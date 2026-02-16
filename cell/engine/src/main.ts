@@ -642,6 +642,8 @@ app.get("/session", async (_req: Request, res: Response) => {
 app.post("/session/clear", async (_req: Request, res: Response) => {
   try {
     const existed = await clearSessionFile();
+    // Clear in-memory logs so SSE replays an empty array on reconnect
+    logs.length = 0;
     res.json({
       success: true,
       message: existed

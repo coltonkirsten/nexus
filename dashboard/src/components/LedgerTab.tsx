@@ -15,20 +15,15 @@ import {
   EyeOff,
 } from 'lucide-react';
 import type { Agent } from '../types/agent';
+import { getLedgerTree, getLedgerFile, saveLedgerFile, type FileEntry } from '../api/agents';
+import { ConfirmModal } from './ConfirmModal';
 
 interface LedgerTabProps {
   agent: Agent;
 }
 
-interface LedgerEntry {
-  name: string;
-  type: 'file' | 'directory';
-  path: string;
-  children?: LedgerEntry[];
-}
-
 interface LedgerTree {
-  entries: LedgerEntry[];
+  entries: FileEntry[];
 }
 
 interface DiffLine {
@@ -36,8 +31,6 @@ interface DiffLine {
   content: string;
   lineNumber: number;
 }
-
-const API_BASE = 'http://localhost:3001';
 
 // Compute simple line-by-line diff
 function computeDiff(original: string, modified: string): DiffLine[] {
@@ -74,7 +67,7 @@ function TreeNode({
   expandedPaths,
   onToggleExpand,
 }: {
-  entry: LedgerEntry;
+  entry: FileEntry;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string) => void;
@@ -97,30 +90,30 @@ function TreeNode({
     <div>
       <button
         onClick={handleClick}
-        className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left transition-colors rounded ${
+        className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm text-left transition-all duration-200 rounded-lg ${
           isSelected
-            ? 'bg-blue-600/30 text-blue-300'
-            : 'text-gray-300 hover:bg-gray-700/50'
+            ? 'bg-indigo-500/20 text-indigo-300'
+            : 'text-[#e0e0e8] hover:bg-[#1a1a2e]'
         }`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
         {isDirectory ? (
           <>
             {isExpanded ? (
-              <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
+              <ChevronDown className="w-4 h-4 text-[#4a4a5e] shrink-0" />
             ) : (
-              <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-[#4a4a5e] shrink-0" />
             )}
             {isExpanded ? (
-              <FolderOpen className="w-4 h-4 text-yellow-500 shrink-0" />
+              <FolderOpen className="w-4 h-4 text-indigo-400 shrink-0" />
             ) : (
-              <Folder className="w-4 h-4 text-yellow-500 shrink-0" />
+              <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
             )}
           </>
         ) : (
           <>
             <span className="w-4" />
-            <FileText className="w-4 h-4 text-gray-400 shrink-0" />
+            <FileText className="w-4 h-4 text-[#7a7a8e] shrink-0" />
           </>
         )}
         <span className="truncate">{entry.name}</span>
@@ -148,36 +141,32 @@ function DiffView({
   original,
   modified,
   title = 'Changes Detected',
-  showAllLines = false,
 }: {
   original: string;
   modified: string;
   title?: string;
-  showAllLines?: boolean;
 }) {
   const diffLines = computeDiff(original, modified);
   const hasChanges = diffLines.some((line) => line.type !== 'unchanged');
 
   if (!hasChanges) {
     return (
-      <div className="border-t border-gray-700 bg-gray-900">
-        <div className="px-4 py-3 text-sm text-gray-500 text-center">
+      <div className="border-t border-[#1e1e3a] bg-[#0a0a0f]">
+        <div className="px-4 py-3 text-sm text-[#4a4a5e] text-center">
           No changes detected
         </div>
       </div>
     );
   }
 
-  const linesToShow = showAllLines
-    ? diffLines
-    : diffLines.filter((line) => line.type !== 'unchanged');
+  const linesToShow = diffLines.filter((line) => line.type !== 'unchanged');
 
   return (
-    <div className="border-t border-gray-700 bg-gray-900">
-      <div className="px-4 py-2 text-sm font-medium text-gray-400 border-b border-gray-700 flex items-center gap-2">
+    <div className="border-t border-[#1e1e3a] bg-[#0a0a0f]">
+      <div className="px-4 py-2 text-sm font-medium text-[#7a7a8e] border-b border-[#1e1e3a] flex items-center gap-2">
         <GitCompare className="w-4 h-4" />
         {title}
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-[#4a4a5e]">
           ({diffLines.filter(l => l.type === 'added').length} additions, {diffLines.filter(l => l.type === 'removed').length} deletions)
         </span>
       </div>
@@ -190,10 +179,10 @@ function DiffView({
                 ? 'bg-green-900/30 text-green-400'
                 : line.type === 'removed'
                 ? 'bg-red-900/30 text-red-400'
-                : 'text-gray-500'
+                : 'text-[#4a4a5e]'
             }`}
           >
-            <span className="inline-block w-8 text-gray-600 select-none">{line.lineNumber}</span>
+            <span className="inline-block w-8 text-[#4a4a5e] select-none">{line.lineNumber}</span>
             <span className="inline-block w-4 mr-1 select-none">
               {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
             </span>
@@ -210,7 +199,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [originalContent, setOriginalContent] = useState<string>('');
   const [editorContent, setEditorContent] = useState<string>('');
-  const [previousContent, setPreviousContent] = useState<string>(''); // Content when file was first loaded
+  const [previousContent, setPreviousContent] = useState<string>('');
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     new Set(['/ledger', '/ledger/memory', '/ledger/skills'])
   );
@@ -223,6 +212,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
   const [diffMode, setDiffMode] = useState<'local' | 'external'>('local');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [externalChangesDetected, setExternalChangesDetected] = useState(false);
+  const [confirmSwitchPath, setConfirmSwitchPath] = useState<string | null>(null);
 
   const hasChanges = originalContent !== editorContent;
 
@@ -231,11 +221,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
     setIsLoadingTree(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/agents/${agent.id}/ledger`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch ledger tree');
-      }
-      const data: LedgerTree = await response.json();
+      const data = await getLedgerTree(agent.id);
       setTree(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load ledger');
@@ -254,30 +240,20 @@ export function LedgerTab({ agent }: LedgerTabProps) {
       }
       setError(null);
       try {
-        const response = await fetch(
-          `${API_BASE}/api/agents/${agent.id}/ledger/file?path=${encodeURIComponent(path)}`
-        );
-        if (!response.ok) {
-          throw new Error('Failed to fetch file');
-        }
-        const data = await response.json();
+        const data = await getLedgerFile(agent.id, path);
         const content = data.content || '';
 
         if (isRefresh) {
-          // On refresh, check for external changes (agent activity)
           if (content !== originalContent) {
             setExternalChangesDetected(true);
             setShowDiff(true);
             setDiffMode('external');
           }
-          // Update original content to the new fetched content
           setOriginalContent(content);
-          // If no local edits, also update editor content
           if (!hasChanges) {
             setEditorContent(content);
           }
         } else {
-          // Initial load - store as both previous and original
           setPreviousContent(content);
           setOriginalContent(content);
           setEditorContent(content);
@@ -310,20 +286,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
     setError(null);
     setSaveStatus('idle');
     try {
-      const response = await fetch(
-        `${API_BASE}/api/agents/${agent.id}/ledger/file?path=${encodeURIComponent(selectedPath)}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ content: editorContent }),
-        }
-      );
-      if (!response.ok) {
-        throw new Error('Failed to save file');
-      }
-      // After saving, update both original and previous to the saved content
+      await saveLedgerFile(agent.id, selectedPath, editorContent);
       setOriginalContent(editorContent);
       setPreviousContent(editorContent);
       setExternalChangesDetected(false);
@@ -350,7 +313,6 @@ export function LedgerTab({ agent }: LedgerTabProps) {
   const toggleDiff = () => {
     setShowDiff((prev) => !prev);
     if (!showDiff) {
-      // Default to showing local changes if any, otherwise external
       setDiffMode(hasChanges ? 'local' : 'external');
     }
   };
@@ -371,12 +333,13 @@ export function LedgerTab({ agent }: LedgerTabProps) {
   // Select file
   const handleSelectFile = (path: string) => {
     if (hasChanges) {
-      // Could add a confirmation dialog here
-      const confirm = window.confirm(
-        'You have unsaved changes. Are you sure you want to switch files?'
-      );
-      if (!confirm) return;
+      setConfirmSwitchPath(path);
+      return;
     }
+    doSelectFile(path);
+  };
+
+  const doSelectFile = (path: string) => {
     setSelectedPath(path);
     setShowDiff(false);
     setExternalChangesDetected(false);
@@ -391,23 +354,23 @@ export function LedgerTab({ agent }: LedgerTabProps) {
   return (
     <div className="flex h-full">
       {/* File tree sidebar */}
-      <div className="w-64 border-r border-gray-700 flex flex-col bg-gray-900/50">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <span className="text-sm font-medium text-gray-300">Ledger Files</span>
+      <div className="w-64 border-r border-[#1e1e3a] flex flex-col bg-[#0a0a0f]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e3a]">
+          <span className="text-sm font-medium text-[#e0e0e8]">Ledger Files</span>
           <button
             onClick={fetchTree}
             disabled={isLoadingTree}
-            className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+            className="p-1 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200 disabled:opacity-50"
             title="Refresh"
           >
             <RefreshCw className={`w-4 h-4 ${isLoadingTree ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className="flex-1 overflow-y-auto py-2 px-1">
           {isLoadingTree ? (
             <div className="flex items-center justify-center py-8">
-              <RefreshCw className="w-5 h-5 text-gray-500 animate-spin" />
+              <RefreshCw className="w-5 h-5 text-[#4a4a5e] animate-spin" />
             </div>
           ) : tree ? (
             tree.entries.map((entry) => (
@@ -422,7 +385,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
               />
             ))
           ) : (
-            <div className="px-4 py-8 text-center text-gray-500 text-sm">
+            <div className="px-4 py-8 text-center text-[#4a4a5e] text-sm">
               No ledger found
             </div>
           )}
@@ -432,54 +395,52 @@ export function LedgerTab({ agent }: LedgerTabProps) {
       {/* Editor panel */}
       <div className="flex-1 flex flex-col">
         {/* Editor header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e3a]">
           <div className="flex items-center gap-2">
             {selectedPath ? (
               <>
-                <FileText className="w-4 h-4 text-gray-400" />
-                <span className="text-sm text-gray-300 font-mono">{selectedPath}</span>
+                <FileText className="w-4 h-4 text-[#7a7a8e]" />
+                <span className="text-sm text-[#e0e0e8] font-mono">{selectedPath}</span>
                 {hasChanges && (
-                  <span className="px-1.5 py-0.5 text-xs bg-yellow-600/30 text-yellow-400 rounded">
+                  <span className="px-1.5 py-0.5 text-xs bg-yellow-600/30 text-yellow-400 rounded-lg">
                     Modified
                   </span>
                 )}
               </>
             ) : (
-              <span className="text-sm text-gray-500">Select a file to edit</span>
+              <span className="text-sm text-[#4a4a5e]">Select a file to edit</span>
             )}
           </div>
 
           {selectedPath && (
             <div className="flex items-center gap-2">
               {saveStatus === 'success' && (
-                <span className="flex items-center gap-1 text-sm text-green-400">
+                <span className="flex items-center gap-1 text-sm text-emerald-400">
                   <Check className="w-4 h-4" />
                   Saved
                 </span>
               )}
               {externalChangesDetected && (
-                <span className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600/30 text-purple-400 rounded">
+                <span className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600/30 text-purple-400 rounded-lg">
                   External changes
                 </span>
               )}
-              {/* Refresh & Show Diff button */}
               <button
                 onClick={refreshAndShowDiff}
                 disabled={isRefreshing}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 text-sm text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200 disabled:opacity-50"
                 title="Refresh file to detect agent changes"
               >
                 <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
-              {/* Show Diff toggle */}
               <button
                 onClick={toggleDiff}
                 disabled={!hasChanges && !externalChangesDetected}
-                className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded transition-colors ${
+                className={`flex items-center gap-1 px-3 py-1.5 text-sm rounded-xl transition-all duration-200 ${
                   showDiff
-                    ? 'bg-purple-600/30 text-purple-400 hover:bg-purple-600/40'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                    ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'
+                    : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
                 title="Toggle diff view"
               >
@@ -489,7 +450,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
               {hasChanges && (
                 <button
                   onClick={discardChanges}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200"
                 >
                   <X className="w-4 h-4" />
                   Discard
@@ -498,7 +459,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
               <button
                 onClick={saveFile}
                 disabled={!hasChanges || isSaving}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               >
                 <Save className="w-4 h-4" />
                 {isSaving ? 'Saving...' : 'Save'}
@@ -509,7 +470,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
 
         {/* Error display */}
         {error && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-red-900/30 text-red-400 text-sm border-b border-gray-700">
+          <div className="flex items-center gap-2 px-4 py-2 bg-red-900/30 text-red-400 text-sm border-b border-[#1e1e3a]">
             <AlertCircle className="w-4 h-4 shrink-0" />
             {error}
           </div>
@@ -520,30 +481,29 @@ export function LedgerTab({ agent }: LedgerTabProps) {
           {selectedPath ? (
             isLoadingFile ? (
               <div className="flex-1 flex items-center justify-center">
-                <RefreshCw className="w-6 h-6 text-gray-500 animate-spin" />
+                <RefreshCw className="w-6 h-6 text-[#4a4a5e] animate-spin" />
               </div>
             ) : (
               <>
                 <textarea
                   value={editorContent}
                   onChange={(e) => setEditorContent(e.target.value)}
-                  className="flex-1 w-full p-4 bg-gray-950 text-gray-200 font-mono text-sm resize-none focus:outline-none"
+                  className="flex-1 w-full p-4 bg-[#0a0a0f] text-[#e0e0e8] font-mono text-sm resize-none focus:outline-none"
                   spellCheck={false}
                   placeholder="File content..."
                 />
                 {showDiff && (
-                  <div className="border-t border-gray-700">
-                    {/* Diff mode selector */}
+                  <div className="border-t border-[#1e1e3a]">
                     {(hasChanges || externalChangesDetected) && (
-                      <div className="flex items-center gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700">
-                        <span className="text-xs text-gray-500 mr-2">View:</span>
+                      <div className="flex items-center gap-2 px-4 py-2 bg-[#12121a] border-b border-[#1e1e3a]">
+                        <span className="text-xs text-[#4a4a5e] mr-2">View:</span>
                         <button
                           onClick={() => setDiffMode('local')}
                           disabled={!hasChanges}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                          className={`px-2 py-1 text-xs rounded-lg transition-all duration-200 ${
                             diffMode === 'local'
-                              ? 'bg-blue-600/30 text-blue-400'
-                              : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                              ? 'bg-indigo-500/20 text-indigo-400'
+                              : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
                           } disabled:opacity-30 disabled:cursor-not-allowed`}
                         >
                           Local Changes
@@ -551,10 +511,10 @@ export function LedgerTab({ agent }: LedgerTabProps) {
                         <button
                           onClick={() => setDiffMode('external')}
                           disabled={!externalChangesDetected}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                          className={`px-2 py-1 text-xs rounded-lg transition-all duration-200 ${
                             diffMode === 'external'
                               ? 'bg-purple-600/30 text-purple-400'
-                              : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                              : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
                           } disabled:opacity-30 disabled:cursor-not-allowed`}
                         >
                           External Changes (Agent)
@@ -574,8 +534,8 @@ export function LedgerTab({ agent }: LedgerTabProps) {
                         title="External Changes (Agent Activity)"
                       />
                     ) : (
-                      <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                        No changes to display. Click "Refresh" to check for external changes.
+                      <div className="px-4 py-3 text-sm text-[#4a4a5e] text-center">
+                        No changes to display. Click &quot;Refresh&quot; to check for external changes.
                       </div>
                     )}
                   </div>
@@ -583,7 +543,7 @@ export function LedgerTab({ agent }: LedgerTabProps) {
               </>
             )
           ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className="flex-1 flex items-center justify-center text-[#4a4a5e]">
               <div className="text-center">
                 <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p>Select a file from the ledger tree to view and edit</p>
@@ -592,6 +552,22 @@ export function LedgerTab({ agent }: LedgerTabProps) {
           )}
         </div>
       </div>
+
+      {/* Confirm unsaved changes */}
+      <ConfirmModal
+        isOpen={!!confirmSwitchPath}
+        onClose={() => setConfirmSwitchPath(null)}
+        onConfirm={() => {
+          if (confirmSwitchPath) {
+            doSelectFile(confirmSwitchPath);
+          }
+          setConfirmSwitchPath(null);
+        }}
+        title="Unsaved Changes"
+        message="You have unsaved changes. Are you sure you want to switch files? Your changes will be lost."
+        confirmLabel="Switch File"
+        variant="warning"
+      />
     </div>
   );
 }

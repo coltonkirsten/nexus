@@ -10,6 +10,9 @@ interface CreateAgentModalProps {
 
 const templates = [
   { id: 'blank', name: 'Blank Agent', description: 'Start with a clean slate' },
+  { id: 'coder', name: 'Coder', description: 'Software development and programming tasks' },
+  { id: 'researcher', name: 'Researcher', description: 'Research, analysis, and information gathering' },
+  { id: 'writer', name: 'Writer', description: 'Content creation, writing, and editing' },
 ];
 
 export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
@@ -32,7 +35,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
     if (name.trim()) {
       createMutation.mutate({
         name: name.trim(),
-        template: template !== 'blank' ? template : undefined,
+        template,
       });
     }
   };

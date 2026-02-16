@@ -60,8 +60,8 @@ function InvocationItem({ invocation }: InvocationItemProps) {
   const statusConfig = {
     success: {
       icon: CheckCircle,
-      color: 'text-green-400',
-      bgColor: 'bg-green-400/10',
+      color: 'text-emerald-400',
+      bgColor: 'bg-emerald-400/10',
       label: 'Success',
     },
     error: {
@@ -77,14 +77,13 @@ function InvocationItem({ invocation }: InvocationItemProps) {
   const totalTokens = invocation.tokenUsage.input + invocation.tokenUsage.output;
 
   return (
-    <div className="border border-gray-700 rounded-lg overflow-hidden bg-gray-800/50">
+    <div className="border border-[#1e1e3a] rounded-xl overflow-hidden bg-[#12121a]">
       {/* Collapsed view - clickable header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-3 flex items-center gap-4 hover:bg-gray-700/50 transition-colors text-left"
+        className="w-full px-4 py-3 flex items-center gap-4 hover:bg-[#1a1a2e] transition-all duration-200 text-left"
       >
-        {/* Expand/collapse indicator */}
-        <div className="text-gray-400">
+        <div className="text-[#4a4a5e]">
           {isExpanded ? (
             <ChevronDown className="w-4 h-4" />
           ) : (
@@ -92,97 +91,85 @@ function InvocationItem({ invocation }: InvocationItemProps) {
           )}
         </div>
 
-        {/* Status indicator */}
         <div className={`flex items-center gap-1.5 ${status.color}`}>
           <StatusIcon className="w-4 h-4" />
           <span className="text-xs font-medium">{status.label}</span>
         </div>
 
-        {/* Timestamp */}
-        <div className="text-sm text-gray-400 shrink-0">
+        <div className="text-sm text-[#7a7a8e] shrink-0">
           {formatTimestamp(invocation.timestamp)}
         </div>
 
-        {/* Input preview */}
-        <div className="flex-1 text-sm text-gray-300 truncate min-w-0">
-          <span className="text-gray-500">Input: </span>
+        <div className="flex-1 text-sm text-[#e0e0e8] truncate min-w-0">
+          <span className="text-[#4a4a5e]">Input: </span>
           {truncateText(invocation.input, 60)}
         </div>
 
-        {/* Stats */}
         <div className="flex items-center gap-4 shrink-0">
-          {/* Duration */}
-          <div className="flex items-center gap-1 text-xs text-gray-400">
+          <div className="flex items-center gap-1 text-xs text-[#7a7a8e]">
             <Clock className="w-3.5 h-3.5" />
             {formatDuration(invocation.durationMs)}
           </div>
-
-          {/* Tokens */}
-          <div className="flex items-center gap-1 text-xs text-gray-400">
+          <div className="flex items-center gap-1 text-xs text-[#7a7a8e]">
             <MessageSquare className="w-3.5 h-3.5" />
             {totalTokens.toLocaleString()}
           </div>
-
-          {/* Cost */}
-          <div className="flex items-center gap-1 text-xs text-gray-400">
+          <div className="flex items-center gap-1 text-xs text-[#7a7a8e]">
             <Coins className="w-3.5 h-3.5" />
             {formatCost(invocation.costUsd)}
           </div>
         </div>
       </button>
 
-      {/* Expanded view - full details */}
+      {/* Expanded view */}
       {isExpanded && (
-        <div className="px-4 pb-4 pt-2 border-t border-gray-700 space-y-4">
-          {/* Input section */}
+        <div className="px-4 pb-4 pt-2 border-t border-[#1e1e3a] space-y-4">
           <div>
-            <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+            <h4 className="text-xs font-medium text-[#4a4a5e] uppercase tracking-wide mb-2">
               Input Message
             </h4>
-            <div className="bg-gray-900 rounded-lg p-3 text-sm text-gray-300 font-mono whitespace-pre-wrap break-words">
+            <div className="bg-[#0a0a0f] rounded-xl p-3 text-sm text-[#e0e0e8] font-mono whitespace-pre-wrap break-words border border-[#1e1e3a]">
               {invocation.input}
             </div>
           </div>
 
-          {/* Result section */}
           <div>
-            <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+            <h4 className="text-xs font-medium text-[#4a4a5e] uppercase tracking-wide mb-2">
               Result
             </h4>
             <div
-              className={`rounded-lg p-3 text-sm font-mono whitespace-pre-wrap break-words ${
+              className={`rounded-xl p-3 text-sm font-mono whitespace-pre-wrap break-words border ${
                 invocation.status === 'error'
-                  ? 'bg-red-900/20 text-red-300 border border-red-800/50'
-                  : 'bg-gray-900 text-gray-300'
+                  ? 'bg-red-900/20 text-red-300 border-red-800/50'
+                  : 'bg-[#0a0a0f] text-[#e0e0e8] border-[#1e1e3a]'
               }`}
             >
               {invocation.result}
             </div>
           </div>
 
-          {/* Detailed stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
-            <div className="bg-gray-900 rounded-lg p-3">
-              <div className="text-xs text-gray-500 mb-1">Duration</div>
-              <div className="text-sm font-medium text-white">
+            <div className="bg-[#0a0a0f] rounded-xl p-3 border border-[#1e1e3a]">
+              <div className="text-xs text-[#4a4a5e] mb-1">Duration</div>
+              <div className="text-sm font-medium text-[#e0e0e8]">
                 {formatDuration(invocation.durationMs)}
               </div>
             </div>
-            <div className="bg-gray-900 rounded-lg p-3">
-              <div className="text-xs text-gray-500 mb-1">Input Tokens</div>
-              <div className="text-sm font-medium text-white">
+            <div className="bg-[#0a0a0f] rounded-xl p-3 border border-[#1e1e3a]">
+              <div className="text-xs text-[#4a4a5e] mb-1">Input Tokens</div>
+              <div className="text-sm font-medium text-[#e0e0e8]">
                 {invocation.tokenUsage.input.toLocaleString()}
               </div>
             </div>
-            <div className="bg-gray-900 rounded-lg p-3">
-              <div className="text-xs text-gray-500 mb-1">Output Tokens</div>
-              <div className="text-sm font-medium text-white">
+            <div className="bg-[#0a0a0f] rounded-xl p-3 border border-[#1e1e3a]">
+              <div className="text-xs text-[#4a4a5e] mb-1">Output Tokens</div>
+              <div className="text-sm font-medium text-[#e0e0e8]">
                 {invocation.tokenUsage.output.toLocaleString()}
               </div>
             </div>
-            <div className="bg-gray-900 rounded-lg p-3">
-              <div className="text-xs text-gray-500 mb-1">Cost</div>
-              <div className="text-sm font-medium text-white">
+            <div className="bg-[#0a0a0f] rounded-xl p-3 border border-[#1e1e3a]">
+              <div className="text-xs text-[#4a4a5e] mb-1">Cost</div>
+              <div className="text-sm font-medium text-[#e0e0e8]">
                 {formatCost(invocation.costUsd)}
               </div>
             </div>
@@ -206,9 +193,9 @@ export function HistoryTab({ agent }: HistoryTabProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
+      <div className="flex items-center justify-center h-full text-[#4a4a5e]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-4" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-400 mx-auto mb-4" />
           <p>Loading history...</p>
         </div>
       </div>
@@ -217,12 +204,12 @@ export function HistoryTab({ agent }: HistoryTabProps) {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
+      <div className="flex items-center justify-center h-full text-[#4a4a5e]">
         <div className="text-center">
           <p className="text-red-400 mb-2">Failed to load history</p>
           <button
             onClick={() => refetch()}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-white transition-colors"
+            className="px-4 py-2 bg-[#1a1a2e] hover:bg-[#2a2a4a] rounded-xl text-sm text-[#e0e0e8] transition-all duration-200"
           >
             Retry
           </button>
@@ -235,10 +222,10 @@ export function HistoryTab({ agent }: HistoryTabProps) {
 
   if (invocations.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
+      <div className="flex items-center justify-center h-full text-[#4a4a5e]">
         <div className="text-center">
-          <Clock className="w-12 h-12 mx-auto mb-4 text-gray-600" />
-          <p className="text-lg font-medium">No invocation history</p>
+          <Clock className="w-12 h-12 mx-auto mb-4 text-[#1e1e3a]" />
+          <p className="text-lg font-medium text-[#7a7a8e]">No invocation history</p>
           <p className="mt-1 text-sm">
             Past agent invocations will appear here.
           </p>
@@ -247,7 +234,6 @@ export function HistoryTab({ agent }: HistoryTabProps) {
     );
   }
 
-  // Calculate summary stats
   const totalInvocations = invocations.length;
   const successCount = invocations.filter((i) => i.status === 'success').length;
   const totalCost = invocations.reduce((sum, i) => sum + i.costUsd, 0);
@@ -259,27 +245,27 @@ export function HistoryTab({ agent }: HistoryTabProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Summary header */}
-      <div className="px-4 py-3 border-b border-gray-700 bg-gray-800/30">
+      <div className="px-4 py-3 border-b border-[#1e1e3a] bg-[#12121a]">
         <div className="flex items-center gap-6 text-sm">
           <div>
-            <span className="text-gray-500">Total: </span>
-            <span className="text-white font-medium">{totalInvocations}</span>
+            <span className="text-[#4a4a5e]">Total: </span>
+            <span className="text-[#e0e0e8] font-medium">{totalInvocations}</span>
           </div>
           <div>
-            <span className="text-gray-500">Success: </span>
-            <span className="text-green-400 font-medium">
+            <span className="text-[#4a4a5e]">Success: </span>
+            <span className="text-emerald-400 font-medium">
               {successCount}/{totalInvocations}
             </span>
           </div>
           <div>
-            <span className="text-gray-500">Tokens: </span>
-            <span className="text-white font-medium">
+            <span className="text-[#4a4a5e]">Tokens: </span>
+            <span className="text-[#e0e0e8] font-medium">
               {totalTokens.toLocaleString()}
             </span>
           </div>
           <div>
-            <span className="text-gray-500">Cost: </span>
-            <span className="text-white font-medium">{formatCost(totalCost)}</span>
+            <span className="text-[#4a4a5e]">Cost: </span>
+            <span className="text-[#e0e0e8] font-medium">{formatCost(totalCost)}</span>
           </div>
         </div>
       </div>

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Circle, Trash2, Play, Square, RotateCcw } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Send, Circle, Trash2, Play, Square } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Agent } from '../types/agent';
-import { sendMessage, getSessionInfo, clearSession, startAgent, stopAgent } from '../api/agents';
+import { sendMessage, clearSession, startAgent, stopAgent } from '../api/agents';
 import { useAgentLogs } from '../hooks/useAgentLogs';
 import { useConversationStream } from '../hooks/useConversationStream';
 import { UserMessage } from './messages/UserMessage';
@@ -15,9 +15,7 @@ interface ConversationTabProps {
 
 function StatusIndicator({ status }: { status: Agent['status'] }) {
   const colors: Record<string, string> = {
-    idle: 'text-emerald-400',
     running: 'text-emerald-400',
-    processing: 'text-yellow-400',
     starting: 'text-yellow-400',
     stopping: 'text-yellow-400',
     stopped: 'text-red-400',
@@ -26,9 +24,7 @@ function StatusIndicator({ status }: { status: Agent['status'] }) {
   };
 
   const labels: Record<string, string> = {
-    idle: 'Idle',
     running: 'Running',
-    processing: 'Processing',
     starting: 'Starting...',
     stopping: 'Stopping...',
     stopped: 'Stopped',
@@ -46,7 +42,6 @@ function StatusIndicator({ status }: { status: Agent['status'] }) {
 
 export function ConversationTab({ agent }: ConversationTabProps) {
   const [message, setMessage] = useState('');
-  const [sessionEnabled, setSessionEnabled] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -55,7 +50,7 @@ export function ConversationTab({ agent }: ConversationTabProps) {
   const { logs, isConnected, error, clearLogs } = useAgentLogs(agent.id);
   const { turns, isAgentRunning } = useConversationStream(logs);
 
-  const isRunning = agent.status === 'running' || agent.status === 'idle' || agent.status === 'processing';
+  const isRunning = agent.status === 'running';
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
 
   // Start/stop mutations
@@ -71,14 +66,6 @@ export function ConversationTab({ agent }: ConversationTabProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
-  });
-
-  // Session info
-  const { data: sessionInfo } = useQuery({
-    queryKey: ['session', agent.id],
-    queryFn: () => getSessionInfo(agent.id),
-    refetchInterval: 10000,
-    enabled: isRunning,
   });
 
   // Send message (fire-and-forget, watch SSE for response)
@@ -151,18 +138,6 @@ export function ConversationTab({ agent }: ConversationTabProps) {
               Start
             </button>
           )}
-          {/* Session toggle */}
-          <button
-            onClick={() => setSessionEnabled(!sessionEnabled)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg transition-all duration-200 ${
-              sessionEnabled
-                ? 'text-indigo-400 bg-indigo-500/10'
-                : 'text-[#4a4a5e] hover:text-[#7a7a8e]'
-            }`}
-          >
-            <div className={`w-1.5 h-1.5 rounded-full ${sessionEnabled ? 'bg-indigo-400' : 'bg-[#4a4a5e]'}`} />
-            Session {sessionEnabled ? (sessionInfo?.sessionId ? `${sessionInfo.sessionId.slice(0, 6)}` : 'On') : 'Off'}
-          </button>
         </div>
         <div className="flex items-center gap-3">
           {error && (
@@ -180,16 +155,9 @@ export function ConversationTab({ agent }: ConversationTabProps) {
               clearSessionMutation.mutate();
             }}
             className="p-1.5 text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
-            title="Clear session"
+            title="Clear conversation"
           >
             <Trash2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => clearSessionMutation.mutate()}
-            className="p-1.5 text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
-            title="New session"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

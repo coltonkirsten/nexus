@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MessageSquare,
   Folder,
@@ -13,6 +13,7 @@ import { HistoryTab } from './HistoryTab';
 
 interface AgentDetailProps {
   agent: Agent;
+  initialTab?: string;
 }
 
 type TabId = 'conversation' | 'workspace' | 'settings' | 'history';
@@ -30,8 +31,17 @@ const tabs: Tab[] = [
   { id: 'history', label: 'History', icon: History },
 ];
 
-export function AgentDetail({ agent }: AgentDetailProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('conversation');
+const validTabs = new Set<string>(tabs.map(t => t.id));
+
+export function AgentDetail({ agent, initialTab }: AgentDetailProps) {
+  const navigate = useNavigate();
+  const activeTab: TabId = initialTab && validTabs.has(initialTab)
+    ? (initialTab as TabId)
+    : 'conversation';
+
+  const handleTabChange = (tabId: TabId) => {
+    navigate(`/agent/${agent.id}/${tabId}`, { replace: true });
+  };
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -58,7 +68,7 @@ export function AgentDetail({ agent }: AgentDetailProps) {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-4 py-3 text-xs font-medium transition-all duration-200 border-b-2 ${
                 isActive
                   ? 'text-indigo-400 border-indigo-400'

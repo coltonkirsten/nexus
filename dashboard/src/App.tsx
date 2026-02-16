@@ -18,7 +18,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<AgentOverview />} />
-          <Route path="/agent/:agentId" element={<AgentDetailPage />} />
+          <Route path="/agent/:agentId/:tab?" element={<AgentDetailPage />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

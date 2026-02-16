@@ -1,5 +1,3 @@
-export type AgentMode = 'task' | 'conversation';
-
 export type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 
 export type MessageStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -16,10 +14,10 @@ export interface Agent {
   name: string;
   template?: string;
   createdAt: string;
+  lastActivity?: string;
   containerId?: string;
   port?: number;
   status: AgentStatus;
-  mode: AgentMode;
   sessionPersistence: boolean;
   healthStatus?: HealthStatus;
   healthFailures?: number;
@@ -29,7 +27,6 @@ export interface Agent {
 export interface AgentConfig {
   name: string;
   template?: string;
-  mode?: AgentMode;
   sessionPersistence?: boolean;
 }
 

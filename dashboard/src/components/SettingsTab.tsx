@@ -25,6 +25,7 @@ import {
   deleteSkill,
   type SkillData,
 } from '../api/agents';
+import { ConfirmModal } from './ConfirmModal';
 
 interface SettingsTabProps {
   agent: Agent;
@@ -45,7 +46,7 @@ const TOOL_OPTIONS = [
   { value: 'Grep', label: 'Grep' },
 ];
 
-const DEFAULT_CONFIG: AgentConfig = {
+const DEFAULT_CONFIG: Required<AgentConfig> = {
   model: 'claude-sonnet-4-5-20250929',
   maxTurns: 50,
   timeout: 300,
@@ -267,7 +268,7 @@ export function SettingsTab({ agent }: SettingsTabProps) {
   const queryClient = useQueryClient();
 
   // Config state
-  const [config, setConfig] = useState<AgentConfig>(() => ({
+  const [config, setConfig] = useState<Required<AgentConfig>>(() => ({
     ...DEFAULT_CONFIG,
     ...(agent.config || {}),
   }));
@@ -278,6 +279,7 @@ export function SettingsTab({ agent }: SettingsTabProps) {
   const [skillModalMode, setSkillModalMode] = useState<'create' | 'edit'>('create');
   const [selectedSkill, setSelectedSkill] = useState<SkillData | null>(null);
   const [isLoadingSkill, setIsLoadingSkill] = useState(false);
+  const [deleteSkillName, setDeleteSkillName] = useState<string | null>(null);
 
   // Queries
   const { data: promptData } = useQuery({
@@ -527,11 +529,7 @@ export function SettingsTab({ agent }: SettingsTabProps) {
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => {
-                          if (window.confirm(`Delete "${skill.name}"?`)) {
-                            deleteSkillMutation.mutate(skill.name);
-                          }
-                        }}
+                        onClick={() => setDeleteSkillName(skill.name)}
                         className="p-1 text-[#4a4a5e] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -559,6 +557,21 @@ export function SettingsTab({ agent }: SettingsTabProps) {
         isSaving={createSkillMutation.isPending || updateSkillMutation.isPending}
         skill={selectedSkill}
         mode={skillModalMode}
+      />
+
+      <ConfirmModal
+        isOpen={!!deleteSkillName}
+        onClose={() => setDeleteSkillName(null)}
+        onConfirm={() => {
+          if (deleteSkillName) {
+            deleteSkillMutation.mutate(deleteSkillName);
+          }
+          setDeleteSkillName(null);
+        }}
+        title="Delete Skill"
+        message={`Are you sure you want to delete "${deleteSkillName}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
       />
     </div>
   );
