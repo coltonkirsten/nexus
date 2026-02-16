@@ -1,19 +1,23 @@
 import Docker from 'dockerode';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import type { ContainerConfig, AgentStatus } from '../types.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '../../..');
 
 const docker = new Docker();
 
 const CONTAINER_PREFIX = 'nexus-agent-';
 const INTERNAL_PORT = 3100;
 
+function getLedgerVolumeName(agentId: string): string {
+  return `nexus-ledger-${agentId}`;
+}
+
+function getWorkspaceVolumeName(agentId: string): string {
+  return `nexus-workspace-${agentId}`;
+}
+
 export async function createAgentContainer(config: ContainerConfig): Promise<string> {
   const containerName = `${CONTAINER_PREFIX}${config.agentId}`;
-  const agentDir = path.join(PROJECT_ROOT, 'api', 'agents', config.agentId);
+  const ledgerVolume = getLedgerVolumeName(config.agentId);
+  const workspaceVolume = getWorkspaceVolumeName(config.agentId);
 
   const container = await docker.createContainer({
     Image: 'nexus-cell:latest',
@@ -30,15 +34,25 @@ export async function createAgentContainer(config: ContainerConfig): Promise<str
       PortBindings: {
         [`${INTERNAL_PORT}/tcp`]: [{ HostPort: String(config.port) }],
       },
-      Binds: [
-        `${path.join(agentDir, 'ledger')}:/ledger`,
-        `${path.join(agentDir, 'workspace')}:/workspace`,
+      Mounts: [
+        {
+          Target: '/ledger',
+          Source: ledgerVolume,
+          Type: 'volume',
+        },
+        {
+          Target: '/workspace',
+          Source: workspaceVolume,
+          Type: 'volume',
+        },
       ],
       RestartPolicy: { Name: 'unless-stopped' },
     },
     Labels: {
       'nexus.agent.id': config.agentId,
       'nexus.managed': 'true',
+      'nexus.volume.ledger': ledgerVolume,
+      'nexus.volume.workspace': workspaceVolume,
     },
   });
 
@@ -137,4 +151,38 @@ export async function listNexusContainers(): Promise<Docker.ContainerInfo[]> {
     all: true,
     filters: { label: ['nexus.managed=true'] },
   });
+}
+
+export async function removeAgentVolumes(agentId: string): Promise<void> {
+  const volumeNames = [
+    getLedgerVolumeName(agentId),
+    getWorkspaceVolumeName(agentId),
+  ];
+  for (const name of volumeNames) {
+    try {
+      const volume = docker.getVolume(name);
+      await volume.remove();
+    } catch {
+      // Volume might not exist
+    }
+  }
+}
+
+export async function copyToContainer(
+  agentId: string,
+  tarStream: NodeJS.ReadableStream,
+  containerPath: string
+): Promise<void> {
+  const container = await getContainer(agentId);
+  if (!container) throw new Error(`Container for agent ${agentId} not found`);
+  await container.putArchive(tarStream, { path: containerPath });
+}
+
+export async function copyFromContainer(
+  agentId: string,
+  containerPath: string
+): Promise<NodeJS.ReadableStream> {
+  const container = await getContainer(agentId);
+  if (!container) throw new Error(`Container for agent ${agentId} not found`);
+  return container.getArchive({ path: containerPath }) as Promise<NodeJS.ReadableStream>;
 }

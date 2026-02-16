@@ -63,6 +63,12 @@ export interface SendMessageOptions {
   sessionPersistence?: boolean;
   waitForResponse?: boolean;
   timeout?: number;
+  config?: {
+    model?: string;
+    maxTurns?: number;
+    timeout?: number;       // seconds
+    allowedTools?: string[];
+  };
 }
 
 export async function sendMessage(
@@ -91,9 +97,10 @@ export async function sendMessage(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message,
+        config: options.config,
         sessionPersistence: options.sessionPersistence ?? agent.sessionPersistence,
         waitForResponse: options.waitForResponse,
-        timeout: options.timeout, // Pass task timeout to engine
+        timeout: options.config?.timeout ? options.config.timeout * 1000 : options.timeout,
       }),
       signal: controller.signal,
     });

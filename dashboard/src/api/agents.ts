@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, ConversationResponse, SessionInfo } from '../types/agent';
+import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo } from '../types/agent';
 
 const api = axios.create({
   baseURL: 'http://localhost:3001',
@@ -27,8 +27,14 @@ export async function deleteAgent(id: string): Promise<void> {
   await api.delete(`/api/agents/${id}`);
 }
 
+export async function renameAgent(agentId: string, name: string): Promise<Agent> {
+  const response = await api.patch<{ agent: Agent }>(`/api/agents/${agentId}`, { name });
+  return response.data.agent;
+}
+
+// Send message - always fire-and-forget, watch SSE for response
 export async function sendMessage(agentId: string, data: SendMessageRequest): Promise<void> {
-  await api.post(`/api/agents/${agentId}/message`, data);
+  await api.post(`/api/agents/${agentId}/messages`, data);
 }
 
 export async function startAgent(id: string): Promise<Agent> {
@@ -45,9 +51,13 @@ export function getLogsStreamUrl(agentId: string): string {
   return `http://localhost:3001/api/agents/${agentId}/logs`;
 }
 
+export function getTerminalWsUrl(agentId: string): string {
+  return `ws://localhost:3001/api/agents/${agentId}/terminal`;
+}
+
 export async function updateAgentConfig(agentId: string, config: AgentConfig): Promise<Agent> {
-  const response = await api.patch<Agent>(`/api/agents/${agentId}`, { config });
-  return response.data;
+  const response = await api.patch<{ agent: Agent }>(`/api/agents/${agentId}`, { config });
+  return response.data.agent;
 }
 
 // System Prompt API
@@ -103,19 +113,7 @@ export async function getAgentHistory(agentId: string): Promise<HistoryResponse>
   return response.data;
 }
 
-// Conversation Mode API
-
-export async function sendConversationMessage(
-  agentId: string,
-  message: string,
-  sessionId?: string
-): Promise<ConversationResponse> {
-  const response = await api.post<ConversationResponse>(
-    `/api/agents/${agentId}/conversation`,
-    { message, sessionId }
-  );
-  return response.data;
-}
+// Session API
 
 export async function getSessionInfo(agentId: string): Promise<SessionInfo> {
   const response = await api.get<SessionInfo>(`/api/agents/${agentId}/session`);

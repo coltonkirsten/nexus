@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { LogEntry } from '../types/agent';
+import type { RichLogEntry } from '../types/agent';
 import { getLogsStreamUrl } from '../api/agents';
 
 interface UseAgentLogsOptions {
@@ -12,7 +12,7 @@ export function useAgentLogs(
   options: UseAgentLogsOptions = {}
 ) {
   const { maxEntries = 1000, reconnectDelay = 3000 } = options;
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<RichLogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -41,10 +41,9 @@ export function useAgentLogs(
 
     eventSource.onmessage = (event) => {
       try {
-        const logEntry: LogEntry = JSON.parse(event.data);
+        const entry: RichLogEntry = JSON.parse(event.data);
         setLogs((prevLogs) => {
-          const newLogs = [...prevLogs, logEntry];
-          // Keep only the last maxEntries
+          const newLogs = [...prevLogs, entry];
           if (newLogs.length > maxEntries) {
             return newLogs.slice(-maxEntries);
           }

@@ -10,21 +10,28 @@ import {
   getQueue,
   getQueueStats,
   updateMessageStatus,
-  listSkills,
-  getSkill,
-  createSkill,
-  updateSkill,
-  deleteSkill,
 } from '../services/agents.js';
 import {
   createAgentContainer,
   startContainer,
   stopContainer,
   removeContainer,
+  removeAgentVolumes,
   getContainerStatus,
   getContainerLogs,
 } from '../services/docker.js';
 import { sendMessage, getHealth, streamLogs, getSession, clearSession } from '../services/engine.js';
+import {
+  initializeAgent,
+  readFile_ as readVolumeFile,
+  writeFile_ as writeVolumeFile,
+  listDirectory as listVolumeDirectory,
+  listSkills,
+  getSkill,
+  createSkill,
+  updateSkill,
+  deleteSkill,
+} from '../services/volume.js';
 import type { AgentConfig, AgentMode, MessageStatus } from '../types.js';
 
 const router = Router();
@@ -64,6 +71,25 @@ function checkRateLimit(agentId: string): { allowed: boolean; remaining: number;
   return { allowed: true, remaining: RATE_LIMIT_MAX_MESSAGES - entry.count, resetIn };
 }
 
+// Wait for the engine inside a container to become healthy
+async function waitForHealthy(agentId: string, port: number, maxAttempts = 30, intervalMs = 1000): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const response = await fetch(`http://localhost:${port}/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (response.ok) return true;
+    } catch {
+      // Not ready yet
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return false;
+}
+
 // GET /api/agents - List all agents with status
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -96,7 +122,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const agent = await createAgent(config);
 
-    // Create Docker container
+    // Create Docker container (this also creates named volumes)
     const apiKey = process.env.ANTHROPIC_API_KEY;
     const containerId = await createAgentContainer({
       agentId: agent.id,
@@ -104,12 +130,46 @@ router.post('/', async (req: Request, res: Response) => {
       apiKey,
     });
 
+    // Template seeding happens at start time via engine /init endpoint
     await updateAgent(agent.id, { containerId });
 
     res.status(201).json({ agent: { ...agent, containerId } });
   } catch (error) {
     console.error('Error creating agent:', error);
     res.status(500).json({ error: 'Failed to create agent' });
+  }
+});
+
+// PATCH /api/agents/:id - Update agent (rename, config)
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, config: agentConfig } = req.body;
+
+    const agent = await getAgent(id);
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (name && typeof name === 'string') {
+      updates.name = name;
+    }
+    if (agentConfig && typeof agentConfig === 'object') {
+      updates.config = agentConfig;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: 'No valid fields to update' });
+      return;
+    }
+
+    const updated = await updateAgent(id, updates);
+    res.json({ agent: updated });
+  } catch (error) {
+    console.error('Error updating agent:', error);
+    res.status(500).json({ error: 'Failed to update agent' });
   }
 });
 
@@ -129,6 +189,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
       await removeContainer(id);
     } catch {
       // Container might not exist
+    }
+
+    // Clean up Docker volumes
+    try {
+      await removeAgentVolumes(id);
+    } catch {
+      // Volumes might not exist
     }
 
     // Delete agent data
@@ -158,6 +225,23 @@ router.post('/:id/start', async (req: Request, res: Response) => {
 
     await updateAgent(id, { status: 'starting' });
     await startContainer(id);
+
+    // Wait for engine to become healthy before initializing
+    const healthy = await waitForHealthy(id, agent.port!);
+    if (!healthy) {
+      await updateAgent(id, { status: 'error' });
+      res.status(500).json({ error: 'Engine failed to become healthy after start' });
+      return;
+    }
+
+    // Initialize ledger from template (idempotent — skips if already initialized)
+    try {
+      const templateName = agent.template || 'blank';
+      await initializeAgent(id, templateName);
+    } catch (initError) {
+      console.error('Warning: template init failed (non-fatal):', initError);
+    }
+
     await updateAgent(id, { status: 'running' });
 
     res.json({ success: true, message: 'Agent started' });
@@ -350,6 +434,7 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
       const engineResponse = await sendMessage(id, message, {
         sessionPersistence: agent.sessionPersistence,
         waitForResponse: true,
+        config: agent.config,
       });
 
       if (!engineResponse.success) {
@@ -377,6 +462,7 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
       if (agent.status === 'running') {
         engineResponse = await sendMessage(id, message, {
           sessionPersistence: agent.sessionPersistence,
+          config: agent.config,
         });
       }
 
@@ -509,12 +595,8 @@ router.get('/:id/workspace', async (req: Request, res: Response) => {
       return;
     }
 
-    // For now, return a placeholder - actual implementation would exec into container
-    res.json({
-      entries: [
-        { name: 'workspace', type: 'directory', path: '/workspace', children: [] }
-      ]
-    });
+    const entries = await listVolumeDirectory(id, '/workspace');
+    res.json({ entries });
   } catch (error) {
     console.error('Error getting workspace:', error);
     res.status(500).json({ error: 'Failed to get workspace' });
@@ -538,8 +620,13 @@ router.get('/:id/workspace/file', async (req: Request, res: Response) => {
       return;
     }
 
-    // Placeholder - would exec into container to read file
-    res.json({ content: `// File: ${filePath}\n// Content would be here` });
+    const fullPath = filePath.startsWith('/workspace') ? filePath : `/workspace/${filePath}`;
+    const content = await readVolumeFile(id, fullPath);
+    if (content === null) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    res.json({ content });
   } catch (error) {
     console.error('Error getting workspace file:', error);
     res.status(500).json({ error: 'Failed to get file' });
@@ -557,15 +644,8 @@ router.get('/:id/ledger', async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({
-      entries: [
-        { name: 'identity.md', type: 'file', path: '/ledger/identity.md' },
-        { name: 'memory', type: 'directory', path: '/ledger/memory', children: [
-          { name: 'index.md', type: 'file', path: '/ledger/memory/index.md' }
-        ]},
-        { name: 'skills', type: 'directory', path: '/ledger/skills', children: [] }
-      ]
-    });
+    const entries = await listVolumeDirectory(id, '/ledger');
+    res.json({ entries });
   } catch (error) {
     console.error('Error getting ledger:', error);
     res.status(500).json({ error: 'Failed to get ledger' });
@@ -589,8 +669,13 @@ router.get('/:id/ledger/file', async (req: Request, res: Response) => {
       return;
     }
 
-    // Placeholder - would read from container volume
-    res.json({ content: `# ${filePath}\n\nLedger content would be here.` });
+    const fullPath = filePath.startsWith('/ledger') ? filePath : `/ledger/${filePath}`;
+    const content = await readVolumeFile(id, fullPath);
+    if (content === null) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    res.json({ content });
   } catch (error) {
     console.error('Error getting ledger file:', error);
     res.status(500).json({ error: 'Failed to get file' });
@@ -615,8 +700,8 @@ router.put('/:id/ledger/file', async (req: Request, res: Response) => {
       return;
     }
 
-    // Placeholder - would write to container volume
-    console.log(`Would save ${filePath} for agent ${id}:`, content?.slice(0, 100));
+    const fullPath = filePath.startsWith('/ledger') ? filePath : `/ledger/${filePath}`;
+    await writeVolumeFile(id, fullPath, content);
     res.json({ success: true });
   } catch (error) {
     console.error('Error saving ledger file:', error);

@@ -10,7 +10,6 @@ interface CreateAgentModalProps {
 
 const templates = [
   { id: 'blank', name: 'Blank Agent', description: 'Start with a clean slate' },
-  // Future templates can be added here
 ];
 
 export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
@@ -49,15 +48,15 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-md bg-gray-800 rounded-xl shadow-2xl border border-gray-700">
+      <div className="relative w-full max-w-md bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-          <h3 className="text-lg font-semibold text-white">Create New Agent</h3>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e3a]">
+          <h3 className="text-sm font-semibold text-[#e0e0e8]">Create New Agent</h3>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+            className="p-1 text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -67,7 +66,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
           <div className="mb-4">
             <label
               htmlFor="agent-name"
-              className="block text-sm font-medium text-gray-300 mb-2"
+              className="block text-xs text-[#7a7a8e] mb-1.5"
             >
               Agent Name
             </label>
@@ -77,7 +76,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter agent name..."
-              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full px-4 py-2.5 bg-[#0f0f18] border border-[#1e1e3a] rounded-xl text-[#e0e0e8] placeholder-[#4a4a5e] text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all duration-200"
               autoFocus
             />
           </div>
@@ -86,7 +85,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
           <div className="mb-6">
             <label
               htmlFor="agent-template"
-              className="block text-sm font-medium text-gray-300 mb-2"
+              className="block text-xs text-[#7a7a8e] mb-1.5"
             >
               Template
             </label>
@@ -94,7 +93,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
               id="agent-template"
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-blue-500 transition-colors appearance-none cursor-pointer"
+              className="w-full px-4 py-2.5 bg-[#0f0f18] border border-[#1e1e3a] rounded-xl text-[#e0e0e8] text-sm focus:outline-none focus:border-indigo-500 transition-all duration-200 appearance-none cursor-pointer"
             >
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -102,14 +101,14 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
                 </option>
               ))}
             </select>
-            <p className="mt-2 text-xs text-gray-500">
+            <p className="mt-1.5 text-[10px] text-[#4a4a5e]">
               {templates.find((t) => t.id === template)?.description}
             </p>
           </div>
 
           {/* Error message */}
           {createMutation.isError && (
-            <p className="mb-4 text-sm text-red-400">
+            <p className="mb-4 text-xs text-red-400">
               Failed to create agent. Please try again.
             </p>
           )}
@@ -119,14 +118,14 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+              className="px-4 py-2 text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl text-sm transition-all duration-200"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!name.trim() || createMutation.isPending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
             >
               {createMutation.isPending ? 'Creating...' : 'Create Agent'}
             </button>

@@ -1,8 +1,8 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { query } from "@anthropic-ai/claude-code";
-import { readFile, readdir, stat, writeFile, unlink, appendFile } from "fs/promises";
-import { join } from "path";
+import { readFile, readdir, stat, writeFile, unlink, appendFile, mkdir, rm } from "fs/promises";
+import { join, normalize } from "path";
 
 // Session persistence path
 const SESSION_FILE_PATH = "/ledger/session_id";
@@ -17,11 +17,14 @@ interface MessageRequest {
   config?: AgentConfig;
   sessionPersistence?: boolean;
   timeout?: number; // Task timeout in milliseconds
+  waitForResponse?: boolean;
 }
 
 interface AgentConfig {
   model?: string;
   maxTurns?: number;
+  timeout?: number;       // seconds
+  allowedTools?: string[];
 }
 
 interface SessionInfo {
@@ -235,7 +238,7 @@ async function runAgent(
   config: AgentConfig = {},
   sessionPersistence: boolean = false,
   taskTimeout: number = DEFAULT_TASK_TIMEOUT
-): Promise<void> {
+): Promise<string> {
   // Set task running state
   isTaskRunning = true;
   sessionPersistenceEnabled = sessionPersistence;
@@ -268,14 +271,11 @@ async function runAgent(
       preview: systemPrompt.slice(0, 200),
     });
 
-    const allowedTools: (
-      | "Bash"
-      | "Read"
-      | "Write"
-      | "Edit"
-      | "Glob"
-      | "Grep"
-    )[] = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"];
+    type ToolName = "Bash" | "Read" | "Write" | "Edit" | "Glob" | "Grep";
+    const defaultTools: ToolName[] = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"];
+    const allowedTools: ToolName[] = config.allowedTools
+      ? config.allowedTools.filter((t): t is ToolName => defaultTools.includes(t as ToolName))
+      : defaultTools;
 
     // Build query options
     const queryOptions: Record<string, unknown> = {
@@ -296,6 +296,7 @@ async function runAgent(
     // Track tokens for this invocation
     let invocationInputTokens = 0;
     let invocationOutputTokens = 0;
+    let resultText = "";
 
     // Create the agent task promise
     const agentTask = async () => {
@@ -325,6 +326,11 @@ async function runAgent(
             tokenUsage.outputTokens += usage.output_tokens;
           }
           tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
+
+          // Extract result text
+          if ("result" in agentMessage && typeof agentMessage.result === "string") {
+            resultText = agentMessage.result;
+          }
         }
 
         // Extract session_id from system init messages
@@ -377,6 +383,8 @@ async function runAgent(
       sessionId: currentSessionId,
       sessionPersistence
     });
+
+    return resultText;
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : String(error);
@@ -402,6 +410,7 @@ async function runAgent(
     addLog("agent_recovered", {
       message: "Agent returned to idle state after error"
     });
+    return "";
   } finally {
     // Always reset task running state
     isTaskRunning = false;
@@ -428,6 +437,56 @@ app.get("/health", (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     version: "1.0.0",
   });
+});
+
+// Init endpoint — seed ledger from template data (idempotent)
+app.post("/init", async (req: Request, res: Response) => {
+  try {
+    // Check if already initialized (identity.md exists)
+    const existing = await readFileIfExists("/ledger/identity.md");
+    if (existing) {
+      res.json({ initialized: false, reason: "already initialized" });
+      return;
+    }
+
+    const { identity, memory, skills } = req.body as {
+      identity?: string;
+      memory?: string;
+      skills?: Array<{ name: string; content: string }>;
+    };
+
+    // Write identity
+    if (identity) {
+      await writeFile("/ledger/identity.md", identity, "utf-8");
+    }
+
+    // Write memory
+    if (memory) {
+      await mkdir("/ledger/memory", { recursive: true });
+      await writeFile("/ledger/memory/index.md", memory, "utf-8");
+    }
+
+    // Write skills
+    if (skills && skills.length > 0) {
+      for (const skill of skills) {
+        const skillDir = `/ledger/skills/${skill.name}`;
+        await mkdir(skillDir, { recursive: true });
+        await writeFile(`${skillDir}/SKILL.md`, skill.content, "utf-8");
+      }
+    }
+
+    addLog("init_complete", {
+      identity: !!identity,
+      memory: !!memory,
+      skillCount: skills?.length || 0,
+    });
+
+    res.json({ initialized: true });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    addLog("init_error", { error: msg });
+    res.status(500).json({ error: `Init failed: ${msg}` });
+  }
 });
 
 // SSE endpoint for streaming logs
@@ -504,7 +563,7 @@ app.get("/system-prompt", async (_req: Request, res: Response) => {
 
 // Message endpoint
 app.post("/message", async (req: Request, res: Response) => {
-  const { message, config, sessionPersistence, timeout } = req.body as MessageRequest;
+  const { message, config, sessionPersistence, timeout, waitForResponse } = req.body as MessageRequest;
 
   if (!message || typeof message !== "string") {
     res.status(400).json({ error: "Message is required" });
@@ -517,23 +576,48 @@ app.post("/message", async (req: Request, res: Response) => {
     return;
   }
 
-  // Use provided timeout or default
-  const taskTimeout = typeof timeout === "number" && timeout > 0 ? timeout : DEFAULT_TASK_TIMEOUT;
+  // Use provided timeout (ms), or config timeout (seconds → ms), or default
+  const taskTimeout = typeof timeout === "number" && timeout > 0
+    ? timeout
+    : config?.timeout && config.timeout > 0
+      ? config.timeout * 1000
+      : DEFAULT_TASK_TIMEOUT;
 
-  // Start agent in background
-  res.json({
-    status: "started",
-    message: "Agent task started. Monitor /logs for progress.",
-    sessionPersistence: !!sessionPersistence,
-    timeout: taskTimeout,
-  });
-
-  // Run agent (don't await - let it run in background)
-  runAgent(message, config, !!sessionPersistence, taskTimeout).catch((error) => {
-    addLog("agent_fatal_error", {
-      error: error instanceof Error ? error.message : String(error),
+  if (waitForResponse) {
+    // Synchronous mode: await the agent and return the result
+    try {
+      const result = await runAgent(message, config, !!sessionPersistence, taskTimeout);
+      res.json({
+        status: "completed",
+        response: result,
+        sessionPersistence: !!sessionPersistence,
+        timeout: taskTimeout,
+      });
+    } catch (error) {
+      addLog("agent_fatal_error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } else {
+    // Fire-and-forget mode (default)
+    res.json({
+      status: "started",
+      message: "Agent task started. Monitor /logs for progress.",
+      sessionPersistence: !!sessionPersistence,
+      timeout: taskTimeout,
     });
-  });
+
+    // Run agent (don't await - let it run in background)
+    runAgent(message, config, !!sessionPersistence, taskTimeout).catch((error) => {
+      addLog("agent_fatal_error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 });
 
 // Get current session info
@@ -570,6 +654,257 @@ app.post("/session/clear", async (_req: Request, res: Response) => {
       error: "Failed to clear session",
       details: error instanceof Error ? error.message : String(error),
     });
+  }
+});
+
+// --- Filesystem API ---
+
+const ALLOWED_ROOTS = ["/ledger", "/workspace"];
+
+function validatePath(requestedPath: string): { valid: boolean; resolved: string; error?: string } {
+  const resolved = normalize(requestedPath);
+
+  if (resolved.includes("..")) {
+    return { valid: false, resolved, error: "Path traversal not allowed" };
+  }
+
+  const isAllowed = ALLOWED_ROOTS.some(
+    (root) => resolved === root || resolved.startsWith(root + "/")
+  );
+  if (!isAllowed) {
+    return { valid: false, resolved, error: `Path must be under ${ALLOWED_ROOTS.join(" or ")}` };
+  }
+
+  return { valid: true, resolved };
+}
+
+interface DirectoryEntry {
+  name: string;
+  type: "file" | "directory";
+  path: string;
+  size?: number;
+  children?: DirectoryEntry[];
+}
+
+async function listDirectoryRecursive(dirPath: string): Promise<DirectoryEntry[]> {
+  const entries: DirectoryEntry[] = [];
+  try {
+    const items = await readdir(dirPath);
+    for (const item of items) {
+      const fullPath = join(dirPath, item);
+      const itemStat = await stat(fullPath);
+      if (itemStat.isDirectory()) {
+        const children = await listDirectoryRecursive(fullPath);
+        entries.push({ name: item, type: "directory", path: fullPath, children });
+      } else {
+        entries.push({ name: item, type: "file", path: fullPath, size: itemStat.size });
+      }
+    }
+  } catch {
+    // Directory might not exist
+  }
+  return entries;
+}
+
+// GET /files/list - List directory contents
+app.get("/files/list", async (req: Request, res: Response) => {
+  const dirPath = req.query.path as string;
+  if (!dirPath) {
+    res.status(400).json({ error: "path query parameter required" });
+    return;
+  }
+
+  const validation = validatePath(dirPath);
+  if (!validation.valid) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+
+  try {
+    const entries = await listDirectoryRecursive(validation.resolved);
+    res.json({ path: validation.resolved, entries });
+  } catch {
+    res.status(500).json({ error: "Failed to list directory" });
+  }
+});
+
+// GET /files/read - Read file content
+app.get("/files/read", async (req: Request, res: Response) => {
+  const filePath = req.query.path as string;
+  if (!filePath) {
+    res.status(400).json({ error: "path query parameter required" });
+    return;
+  }
+
+  const validation = validatePath(filePath);
+  if (!validation.valid) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+
+  try {
+    const content = await readFile(validation.resolved, "utf-8");
+    const fileStat = await stat(validation.resolved);
+    res.json({
+      path: validation.resolved,
+      content,
+      size: fileStat.size,
+      modifiedAt: fileStat.mtime.toISOString(),
+    });
+  } catch {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+// PUT /files/write - Write/create file
+app.put("/files/write", async (req: Request, res: Response) => {
+  const { path: filePath, content } = req.body as { path?: string; content?: string };
+  if (!filePath || content === undefined) {
+    res.status(400).json({ error: "path and content are required" });
+    return;
+  }
+
+  const validation = validatePath(filePath);
+  if (!validation.valid) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+
+  try {
+    // Ensure parent directory exists
+    const parentDir = join(validation.resolved, "..");
+    await mkdir(parentDir, { recursive: true });
+    await writeFile(validation.resolved, content, "utf-8");
+    res.json({ success: true, path: validation.resolved });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to write file" });
+  }
+});
+
+// DELETE /files/delete - Delete file or directory
+app.delete("/files/delete", async (req: Request, res: Response) => {
+  const filePath = req.query.path as string;
+  if (!filePath) {
+    res.status(400).json({ error: "path query parameter required" });
+    return;
+  }
+
+  const validation = validatePath(filePath);
+  if (!validation.valid) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+
+  // Prevent deleting root directories
+  if (ALLOWED_ROOTS.includes(validation.resolved)) {
+    res.status(400).json({ error: "Cannot delete root directories" });
+    return;
+  }
+
+  try {
+    const fileStat = await stat(validation.resolved);
+    if (fileStat.isDirectory()) {
+      await rm(validation.resolved, { recursive: true });
+    } else {
+      await unlink(validation.resolved);
+    }
+    res.json({ success: true });
+  } catch {
+    res.status(404).json({ error: "File or directory not found" });
+  }
+});
+
+// POST /files/mkdir - Create directory
+app.post("/files/mkdir", async (req: Request, res: Response) => {
+  const { path: dirPath } = req.body as { path?: string };
+  if (!dirPath) {
+    res.status(400).json({ error: "path is required" });
+    return;
+  }
+
+  const validation = validatePath(dirPath);
+  if (!validation.valid) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+
+  try {
+    await mkdir(validation.resolved, { recursive: true });
+    res.json({ success: true, path: validation.resolved });
+  } catch {
+    res.status(500).json({ error: "Failed to create directory" });
+  }
+});
+
+// --- Skills API (directory-per-skill: /ledger/skills/{name}/SKILL.md) ---
+
+// GET /skills - List all skills with parsed metadata
+app.get("/skills", async (_req: Request, res: Response) => {
+  try {
+    const skills = await parseSkillsIndex();
+    res.json({ skills });
+  } catch {
+    res.status(500).json({ error: "Failed to list skills" });
+  }
+});
+
+// GET /skills/:name - Get a specific skill
+app.get("/skills/:name", async (req: Request, res: Response) => {
+  const { name } = req.params;
+  const skillFile = join("/ledger/skills", name, "SKILL.md");
+
+  try {
+    const content = await readFile(skillFile, "utf-8");
+    const frontmatter = parseFrontmatter(content);
+    res.json({
+      name: frontmatter.name || name,
+      description: frontmatter.description || "",
+      path: join("/ledger/skills", name),
+      content,
+    });
+  } catch {
+    res.status(404).json({ error: "Skill not found" });
+  }
+});
+
+// PUT /skills/:name - Create or update a skill
+app.put("/skills/:name", async (req: Request, res: Response) => {
+  const { name } = req.params;
+  const { content } = req.body as { content?: string };
+
+  if (content === undefined) {
+    res.status(400).json({ error: "content is required" });
+    return;
+  }
+
+  const skillDir = join("/ledger/skills", name);
+  const skillFile = join(skillDir, "SKILL.md");
+
+  try {
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(skillFile, content, "utf-8");
+    const frontmatter = parseFrontmatter(content);
+    res.json({
+      name: frontmatter.name || name,
+      description: frontmatter.description || "",
+      path: skillDir,
+      content,
+    });
+  } catch {
+    res.status(500).json({ error: "Failed to save skill" });
+  }
+});
+
+// DELETE /skills/:name - Delete a skill
+app.delete("/skills/:name", async (req: Request, res: Response) => {
+  const { name } = req.params;
+  const skillDir = join("/ledger/skills", name);
+
+  try {
+    await rm(skillDir, { recursive: true });
+    res.json({ success: true });
+  } catch {
+    res.status(404).json({ error: "Skill not found" });
   }
 });
 

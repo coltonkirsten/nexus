@@ -18,7 +18,7 @@ FROM debian:bookworm-slim
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base dependencies
+# Install base dependencies + gosu for privilege dropping
 RUN apt-get update && apt-get install -y \
     bash \
     git \
@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     ca-certificates \
     gnupg \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 LTS via nodesource
@@ -54,14 +55,18 @@ RUN npm install --omit=dev
 # Copy compiled engine code from builder stage
 COPY --chown=agent:agent --from=builder /build/dist/ /opt/engine/dist/
 
-# Create ledger directory structure
+# Create ledger and workspace directory structures with correct ownership
+# When Docker mounts an empty named volume over these paths, it copies
+# the image's directory permissions into the volume on first use.
 RUN mkdir -p /ledger/memory /ledger/skills && chown -R agent:agent /ledger
+RUN mkdir -p /workspace && chown -R agent:agent /workspace
 
 # Switch back to workspace
 WORKDIR /workspace
 
-# Switch to non-root user
-USER agent
+# Copy entrypoint script (runs as root, drops to agent via gosu)
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Default port
 ENV ENGINE_PORT=3100
@@ -70,5 +75,5 @@ ENV ENGINE_PORT=3100
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${ENGINE_PORT}/health || exit 1
 
-# Entrypoint - run the compiled JS from dist/
-ENTRYPOINT ["node", "/opt/engine/dist/main.js"]
+# Entrypoint - fix volume permissions then run engine as agent
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

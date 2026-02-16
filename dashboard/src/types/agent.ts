@@ -16,13 +16,6 @@ export interface Agent {
   config?: AgentConfig;
 }
 
-export interface LogEntry {
-  id: string;
-  timestamp: string;
-  type: 'system' | 'user' | 'agent' | 'error';
-  message: string;
-}
-
 export interface CreateAgentRequest {
   name: string;
   template?: string;
@@ -30,15 +23,7 @@ export interface CreateAgentRequest {
 
 export interface SendMessageRequest {
   message: string;
-  conversationMode?: boolean;
   sessionId?: string;
-}
-
-export interface ConversationMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
 }
 
 export interface SessionInfo {
@@ -46,7 +31,47 @@ export interface SessionInfo {
   active: boolean;
 }
 
-export interface ConversationResponse {
-  response: string;
-  sessionId: string;
+// Rich SSE log entry (as sent by cell engine)
+export interface RichLogEntry {
+  timestamp: string;
+  type: string;
+  data: unknown;
+}
+
+// Parsed content blocks from assistant messages
+export interface TextBlock {
+  type: 'text';
+  text: string;
+}
+
+export interface ToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export type ContentBlock = TextBlock | ToolUseBlock;
+
+// Tool call for conversation view
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+}
+
+// Conversation turn for the unified view
+export interface ConversationTurn {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  timestamp: string;
+  userText?: string;
+  textContent: string;
+  toolCalls: ToolCall[];
+  usage?: { inputTokens: number; outputTokens: number };
+  costUsd?: number;
+  durationMs?: number;
+  isStreaming?: boolean;
 }

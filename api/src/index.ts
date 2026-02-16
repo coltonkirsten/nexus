@@ -6,10 +6,13 @@ import { config } from 'dotenv';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, '../../.env') });
 
+import { createServer } from 'http';
 import express from 'express';
 import cors from 'cors';
+import { WebSocketServer } from 'ws';
 import agentsRouter from './routes/agents.js';
 import { listAgents, updateAgentHealthStatus, recoverAllStuckMessages } from './services/agents.js';
+import { handleTerminalConnection } from './services/terminal.js';
 import type { HealthStatus } from './types.js';
 
 const app = express();
@@ -135,11 +138,33 @@ async function initialize(): Promise<void> {
   }
 }
 
+// Create HTTP server from Express app
+const server = createServer(app);
+
+// WebSocket server for terminal connections
+const wss = new WebSocketServer({ noServer: true });
+
+// Handle WebSocket upgrade
+server.on('upgrade', (request, socket, head) => {
+  const url = new URL(request.url || '', `http://localhost:${PORT}`);
+  const match = url.pathname.match(/^\/api\/agents\/([^/]+)\/terminal$/);
+
+  if (match) {
+    const agentId = match[1];
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      handleTerminalConnection(ws, agentId);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
 // Start server
-app.listen(PORT, async () => {
+server.listen(PORT, async () => {
   console.log(`NEXUS API Server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Agents API: http://localhost:${PORT}/api/agents`);
+  console.log(`WebSocket terminal: ws://localhost:${PORT}/api/agents/:id/terminal`);
 
   // Run startup initialization
   await initialize();

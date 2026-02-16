@@ -4,6 +4,13 @@ export type HealthStatus = 'healthy' | 'unhealthy' | 'unknown';
 
 export type MessageStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
+export interface RuntimeConfig {
+  model?: string;
+  maxTurns?: number;
+  timeout?: number;       // seconds
+  allowedTools?: string[];
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -16,6 +23,7 @@ export interface Agent {
   sessionPersistence: boolean;
   healthStatus?: HealthStatus;
   healthFailures?: number;
+  config?: RuntimeConfig;
 }
 
 export interface AgentConfig {

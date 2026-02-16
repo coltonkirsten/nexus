@@ -1,26 +1,21 @@
 import { useState } from 'react';
 import {
-  Activity,
-  FileText,
+  MessageSquare,
   Folder,
-  BookOpen,
-  Terminal,
   Settings,
   History,
 } from 'lucide-react';
 import type { Agent } from '../types/agent';
-import { ActivityTab } from './ActivityTab';
-import { ConfigTab } from './ConfigTab';
+import { ConversationTab } from './ConversationTab';
+import { WorkspaceUnifiedTab } from './WorkspaceUnifiedTab';
+import { SettingsTab } from './SettingsTab';
 import { HistoryTab } from './HistoryTab';
-import { LedgerTab } from './LedgerTab';
-import { SystemPromptTab } from './SystemPromptTab';
-import { WorkspaceTab } from './WorkspaceTab';
 
 interface AgentDetailProps {
   agent: Agent;
 }
 
-type TabId = 'activity' | 'system-prompt' | 'workspace' | 'ledger' | 'terminal' | 'config' | 'history';
+type TabId = 'conversation' | 'workspace' | 'settings' | 'history';
 
 interface Tab {
   id: TabId;
@@ -29,43 +24,23 @@ interface Tab {
 }
 
 const tabs: Tab[] = [
-  { id: 'activity', label: 'Activity', icon: Activity },
-  { id: 'system-prompt', label: 'System Prompt', icon: FileText },
+  { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'workspace', label: 'Workspace', icon: Folder },
-  { id: 'ledger', label: 'Ledger', icon: BookOpen },
-  { id: 'terminal', label: 'Terminal', icon: Terminal },
-  { id: 'config', label: 'Config', icon: Settings },
+  { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'history', label: 'History', icon: History },
 ];
 
-function PlaceholderTab({ tabName }: { tabName: string }) {
-  return (
-    <div className="flex items-center justify-center h-full text-gray-500">
-      <div className="text-center">
-        <p className="text-lg font-medium">{tabName}</p>
-        <p className="mt-1 text-sm">Coming in Phase 2</p>
-      </div>
-    </div>
-  );
-}
-
 export function AgentDetail({ agent }: AgentDetailProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('activity');
+  const [activeTab, setActiveTab] = useState<TabId>('conversation');
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'activity':
-        return <ActivityTab agent={agent} />;
-      case 'system-prompt':
-        return <SystemPromptTab agent={agent} />;
+      case 'conversation':
+        return <ConversationTab agent={agent} />;
       case 'workspace':
-        return <WorkspaceTab agent={agent} />;
-      case 'ledger':
-        return <LedgerTab agent={agent} />;
-      case 'terminal':
-        return <PlaceholderTab tabName="Terminal" />;
-      case 'config':
-        return <ConfigTab agent={agent} />;
+        return <WorkspaceUnifiedTab agent={agent} />;
+      case 'settings':
+        return <SettingsTab agent={agent} />;
       case 'history':
         return <HistoryTab agent={agent} />;
       default:
@@ -75,14 +50,8 @@ export function AgentDetail({ agent }: AgentDetailProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Agent header */}
-      <div className="px-6 py-4 border-b border-gray-700">
-        <h2 className="text-xl font-semibold text-white">{agent.name}</h2>
-        <p className="text-sm text-gray-400 mt-1">ID: {agent.id}</p>
-      </div>
-
       {/* Tabs */}
-      <div className="flex border-b border-gray-700 overflow-x-auto">
+      <div className="flex border-b border-[#1e1e3a] px-4">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -90,13 +59,13 @@ export function AgentDetail({ agent }: AgentDetailProps) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium transition-all duration-200 border-b-2 ${
                 isActive
-                  ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800/50'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800/30'
+                  ? 'text-indigo-400 border-indigo-400'
+                  : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
               }`}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className="w-3.5 h-3.5" />
               {tab.label}
             </button>
           );
