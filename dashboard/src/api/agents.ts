@@ -1,8 +1,11 @@
 import axios from 'axios';
 import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo } from '../types/agent';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const WS_BASE = API_BASE.replace(/^http/, 'ws');
+
 const api = axios.create({
-  baseURL: 'http://localhost:3001',
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,8 +22,8 @@ export async function getAgent(id: string): Promise<Agent> {
 }
 
 export async function createAgent(data: CreateAgentRequest): Promise<Agent> {
-  const response = await api.post<Agent>('/api/agents', data);
-  return response.data;
+  const response = await api.post<{ agent: Agent }>('/api/agents', data);
+  return response.data.agent;
 }
 
 export async function deleteAgent(id: string): Promise<void> {
@@ -37,22 +40,20 @@ export async function sendMessage(agentId: string, data: SendMessageRequest): Pr
   await api.post(`/api/agents/${agentId}/messages`, data);
 }
 
-export async function startAgent(id: string): Promise<Agent> {
-  const response = await api.post<Agent>(`/api/agents/${id}/start`);
-  return response.data;
+export async function startAgent(id: string): Promise<void> {
+  await api.post(`/api/agents/${id}/start`);
 }
 
-export async function stopAgent(id: string): Promise<Agent> {
-  const response = await api.post<Agent>(`/api/agents/${id}/stop`);
-  return response.data;
+export async function stopAgent(id: string): Promise<void> {
+  await api.post(`/api/agents/${id}/stop`);
 }
 
 export function getLogsStreamUrl(agentId: string): string {
-  return `http://localhost:3001/api/agents/${agentId}/logs`;
+  return `${API_BASE}/api/agents/${agentId}/logs`;
 }
 
 export function getTerminalWsUrl(agentId: string): string {
-  return `ws://localhost:3001/api/agents/${agentId}/terminal`;
+  return `${WS_BASE}/api/agents/${agentId}/terminal`;
 }
 
 export async function updateAgentConfig(agentId: string, config: AgentConfig): Promise<Agent> {
@@ -95,7 +96,7 @@ export interface Invocation {
   timestamp: string;
   input: string;
   result: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'running';
   durationMs: number;
   tokenUsage: {
     input: number;

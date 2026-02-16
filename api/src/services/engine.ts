@@ -3,7 +3,7 @@ import { getAgent } from './agents.js';
 const CONTAINER_TIMEOUT = 10000; // 10 seconds
 
 // Error types for better classification
-type EngineErrorType = 'connection_refused' | 'timeout' | 'container_crashed' | 'network_error' | 'unknown';
+type EngineErrorType = 'connection_refused' | 'timeout' | 'container_crashed' | 'network_error' | 'agent_busy' | 'unknown';
 
 interface EngineError {
   type: EngineErrorType;
@@ -98,7 +98,7 @@ export async function sendMessage(
       body: JSON.stringify({
         message,
         config: options.config,
-        sessionPersistence: options.sessionPersistence ?? agent.sessionPersistence,
+        sessionPersistence: options.sessionPersistence ?? true,
         waitForResponse: options.waitForResponse,
         timeout: options.config?.timeout ? options.config.timeout * 1000 : options.timeout,
       }),
@@ -109,6 +109,14 @@ export async function sendMessage(
 
     if (!response.ok) {
       // Handle specific HTTP error codes
+      if (response.status === 409) {
+        return {
+          success: false,
+          error: 'Agent is busy processing another task',
+          errorType: 'agent_busy',
+          recoverable: true,
+        };
+      }
       if (response.status === 503) {
         return {
           success: false,

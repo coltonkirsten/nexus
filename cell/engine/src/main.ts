@@ -15,7 +15,6 @@ const SHUTDOWN_GRACE_PERIOD = 30000; // 30 seconds
 interface MessageRequest {
   message: string;
   config?: AgentConfig;
-  sessionPersistence?: boolean;
   timeout?: number; // Task timeout in milliseconds
   waitForResponse?: boolean;
 }
@@ -70,7 +69,6 @@ let tokenUsage: TokenUsage = {
 
 // Current session state
 let currentSessionId: string | null = null;
-let sessionPersistenceEnabled = false;
 
 // Task running state for graceful shutdown
 let isTaskRunning = false;
@@ -222,42 +220,43 @@ async function assembleSystemPrompt(): Promise<{ systemPrompt: string; appendPro
 }
 
 // Create a timeout promise for task enforcement
-function createTimeoutPromise(timeoutMs: number, abortController: AbortController): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
+function createTimeoutPromise(timeoutMs: number, abortController: AbortController): { promise: Promise<never>; cleanup: () => void } {
+  let timerId: ReturnType<typeof setTimeout>;
+  const promise = new Promise<never>((_, reject) => {
+    timerId = setTimeout(() => {
       abortController.abort();
       reject(new Error(`Task timed out after ${timeoutMs}ms`));
     }, timeoutMs);
   });
+  return {
+    promise,
+    cleanup: () => clearTimeout(timerId!)
+  };
 }
 
 async function runAgent(
   message: string,
   config: AgentConfig = {},
-  sessionPersistence: boolean = false,
   taskTimeout: number = DEFAULT_TASK_TIMEOUT
 ): Promise<string> {
   // Set task running state
   isTaskRunning = true;
-  sessionPersistenceEnabled = sessionPersistence;
 
   // Create abort controller for timeout
   const abortController = new AbortController();
 
-  // Load existing session ID if persistence is enabled
+  // Load existing session ID for persistence
   let resumeSessionId: string | null = null;
-  if (sessionPersistence) {
-    resumeSessionId = await loadSessionId();
-    if (resumeSessionId) {
-      currentSessionId = resumeSessionId;
-      addLog("session_loaded", { sessionId: resumeSessionId });
-    }
+  resumeSessionId = await loadSessionId();
+  if (resumeSessionId) {
+    currentSessionId = resumeSessionId;
+    addLog("session_loaded", { sessionId: resumeSessionId });
   }
 
   addLog("agent_start", {
     message,
     config,
-    sessionPersistence,
+    sessionPersistence: true,
     resumingSession: !!resumeSessionId,
     timeout: taskTimeout
   });
@@ -291,7 +290,7 @@ async function runAgent(
     };
 
     // Add resume option if we have a session to resume
-    if (sessionPersistence && resumeSessionId) {
+    if (resumeSessionId) {
       queryOptions.resume = resumeSessionId;
     }
 
@@ -337,7 +336,6 @@ async function runAgent(
 
         // Extract session_id from system init messages
         if (
-          sessionPersistence &&
           agentMessage &&
           typeof agentMessage === "object" &&
           "type" in agentMessage &&
@@ -357,10 +355,15 @@ async function runAgent(
     };
 
     // Race between task completion and timeout
-    await Promise.race([
-      agentTask(),
-      createTimeoutPromise(taskTimeout, abortController)
-    ]);
+    const timeout = createTimeoutPromise(taskTimeout, abortController);
+    try {
+      await Promise.race([
+        agentTask(),
+        timeout.promise
+      ]);
+    } finally {
+      timeout.cleanup();
+    }
 
     // Update invocation count
     tokenUsage.invocationCount++;
@@ -383,7 +386,7 @@ async function runAgent(
     addLog("agent_complete", {
       success: true,
       sessionId: currentSessionId,
-      sessionPersistence
+      sessionPersistence: true
     });
 
     return resultText;
@@ -568,7 +571,7 @@ app.get("/system-prompt", async (_req: Request, res: Response) => {
 
 // Message endpoint
 app.post("/message", async (req: Request, res: Response) => {
-  const { message, config, sessionPersistence, timeout, waitForResponse } = req.body as MessageRequest;
+  const { message, config, timeout, waitForResponse } = req.body as MessageRequest;
 
   if (!message || typeof message !== "string") {
     res.status(400).json({ error: "Message is required" });
@@ -578,6 +581,15 @@ app.post("/message", async (req: Request, res: Response) => {
   // Check for API key
   if (!process.env.ANTHROPIC_API_KEY) {
     res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
+    return;
+  }
+
+  // Reject if a task is already running
+  if (isTaskRunning) {
+    res.status(409).json({
+      error: "Agent is busy",
+      message: "A task is already running. Wait for it to complete before sending another message."
+    });
     return;
   }
 
@@ -591,11 +603,11 @@ app.post("/message", async (req: Request, res: Response) => {
   if (waitForResponse) {
     // Synchronous mode: await the agent and return the result
     try {
-      const result = await runAgent(message, config, !!sessionPersistence, taskTimeout);
+      const result = await runAgent(message, config, taskTimeout);
       res.json({
         status: "completed",
         response: result,
-        sessionPersistence: !!sessionPersistence,
+        sessionPersistence: true,
         timeout: taskTimeout,
       });
     } catch (error) {
@@ -612,12 +624,12 @@ app.post("/message", async (req: Request, res: Response) => {
     res.json({
       status: "started",
       message: "Agent task started. Monitor /logs for progress.",
-      sessionPersistence: !!sessionPersistence,
+      sessionPersistence: true,
       timeout: taskTimeout,
     });
 
     // Run agent (don't await - let it run in background)
-    runAgent(message, config, !!sessionPersistence, taskTimeout).catch((error) => {
+    runAgent(message, config, taskTimeout).catch((error) => {
       addLog("agent_fatal_error", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -631,7 +643,7 @@ app.get("/session", async (_req: Request, res: Response) => {
     const storedSessionId = await loadSessionId();
     const sessionInfo: SessionInfo = {
       sessionId: currentSessionId || storedSessionId,
-      persistenceEnabled: sessionPersistenceEnabled,
+      persistenceEnabled: true,
       filePath: SESSION_FILE_PATH,
     };
     res.json(sessionInfo);

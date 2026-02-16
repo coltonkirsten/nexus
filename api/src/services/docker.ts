@@ -24,7 +24,7 @@ export async function createAgentContainer(config: ContainerConfig): Promise<str
     name: containerName,
     Env: [
       `AGENT_ID=${config.agentId}`,
-      `PORT=${INTERNAL_PORT}`,
+      `ENGINE_PORT=${INTERNAL_PORT}`,
       ...(config.apiKey ? [`ANTHROPIC_API_KEY=${config.apiKey}`] : []),
     ],
     ExposedPorts: {
@@ -128,7 +128,7 @@ export async function getContainerLogs(agentId: string): Promise<NodeJS.Readable
   return logStream as NodeJS.ReadableStream;
 }
 
-async function getContainer(agentId: string): Promise<Docker.Container | null> {
+export async function getContainer(agentId: string): Promise<Docker.Container | null> {
   const containerName = `${CONTAINER_PREFIX}${agentId}`;
 
   try {
@@ -136,9 +136,12 @@ async function getContainer(agentId: string): Promise<Docker.Container | null> {
       all: true,
       filters: { name: [containerName] },
     });
-
-    if (containers.length > 0) {
-      return docker.getContainer(containers[0].Id);
+    // Docker name filter is substring match, so verify exact match
+    const exact = containers.find(c =>
+      c.Names.some(n => n === `/${containerName}`)
+    );
+    if (exact) {
+      return docker.getContainer(exact.Id);
     }
     return null;
   } catch {

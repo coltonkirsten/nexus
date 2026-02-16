@@ -1,24 +1,5 @@
-import Docker from 'dockerode';
 import type { WebSocket } from 'ws';
-
-const docker = new Docker();
-const CONTAINER_PREFIX = 'nexus-agent-';
-
-async function getContainer(agentId: string): Promise<Docker.Container | null> {
-  const containerName = `${CONTAINER_PREFIX}${agentId}`;
-  try {
-    const containers = await docker.listContainers({
-      all: true,
-      filters: { name: [containerName] },
-    });
-    if (containers.length > 0) {
-      return docker.getContainer(containers[0].Id);
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
+import { getContainer } from './docker.js';
 
 export async function handleTerminalConnection(ws: WebSocket, agentId: string): Promise<void> {
   const container = await getContainer(agentId);

@@ -12,6 +12,7 @@ import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import agentsRouter from './routes/agents.js';
 import { listAgents, updateAgentHealthStatus, recoverAllStuckMessages } from './services/agents.js';
+import { restartConsumersForRunningAgents } from './services/queueConsumer.js';
 import { handleTerminalConnection } from './services/terminal.js';
 import type { HealthStatus } from './types.js';
 
@@ -133,6 +134,9 @@ async function initialize(): Promise<void> {
     console.log('[Startup] Checking for stuck messages to recover...');
     await recoverAllStuckMessages();
     console.log('[Startup] Queue recovery complete');
+
+    // Restart queue consumers for any agents that are still running
+    await restartConsumersForRunningAgents();
   } catch (error) {
     console.error('[Startup] Error during initialization:', error);
   }

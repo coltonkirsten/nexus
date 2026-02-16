@@ -21,6 +21,7 @@ import {
   getContainerLogs,
 } from '../services/docker.js';
 import { sendMessage, getHealth, streamLogs, getSession, clearSession } from '../services/engine.js';
+import { startConsumer, stopConsumer, notifyNewMessage } from '../services/queueConsumer.js';
 import {
   initializeAgent,
   readFile_ as readVolumeFile,
@@ -263,6 +264,9 @@ router.post('/:id/start', async (req: Request, res: Response) => {
 
     await updateAgent(id, { status: 'running' });
 
+    // Start the queue consumer for this agent
+    startConsumer(id);
+
     res.json({ success: true, message: 'Agent started' });
   } catch (error) {
     console.error('Error starting agent:', error);
@@ -281,6 +285,9 @@ router.post('/:id/stop', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Agent not found' });
       return;
     }
+
+    // Stop the queue consumer before stopping the container
+    await stopConsumer(id);
 
     await updateAgent(id, { status: 'stopping' });
     await stopContainer(id);
@@ -315,7 +322,6 @@ router.get('/:id/status', async (req: Request, res: Response) => {
       healthStatus: agent.healthStatus || 'unknown',
       port: agent.port,
       createdAt: agent.createdAt,
-      sessionPersistence: agent.sessionPersistence,
     });
   } catch (error) {
     console.error('Error getting agent status:', error);
@@ -344,7 +350,6 @@ router.get('/:id/session', async (req: Request, res: Response) => {
     res.json({
       agentId: id,
       session: result.session,
-      sessionPersistence: agent.sessionPersistence,
     });
   } catch (error) {
     console.error('Error getting session:', error);
@@ -424,13 +429,8 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
     // Update lastActivity
     await updateAgent(id, { lastActivity: new Date().toISOString() });
 
-    // Fire-and-forget to engine — dashboard uses SSE for real-time responses
-    sendMessage(id, message, {
-      sessionPersistence: agent.sessionPersistence,
-      config: agent.config,
-    }).catch(err => {
-      console.error('Engine message delivery failed:', err);
-    });
+    // Notify the queue consumer to dispatch this message (or queue it if busy)
+    notifyNewMessage(id);
 
     res.json({
       message: enqueuedMessage,
@@ -741,6 +741,12 @@ router.get('/:id/history', async (req: Request, res: Response) => {
                 currentInvocation.result = data.result || currentInvocation.result;
               }
             }
+          }
+
+          // Include in-flight invocation if one exists
+          if (currentInvocation) {
+            currentInvocation.status = 'running';
+            invocations.push(currentInvocation);
           }
 
           res.json({ invocations });

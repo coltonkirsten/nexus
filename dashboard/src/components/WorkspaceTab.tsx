@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -243,7 +243,7 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Fetch file tree via API client
-  const fetchFileTree = async () => {
+  const fetchFileTree = useCallback(async () => {
     setIsLoadingTree(true);
     setError(null);
 
@@ -256,10 +256,10 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
     } finally {
       setIsLoadingTree(false);
     }
-  };
+  }, [agent.id]);
 
   // Fetch file content via API client
-  const fetchFileContent = async (path: string) => {
+  const fetchFileContent = useCallback(async (path: string) => {
     setIsLoadingContent(true);
     setFileContent(null);
 
@@ -272,17 +272,17 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
     } finally {
       setIsLoadingContent(false);
     }
-  };
+  }, [agent.id]);
 
   useEffect(() => {
     fetchFileTree();
-  }, [agent.id]);
+  }, [fetchFileTree]);
 
   useEffect(() => {
     if (selectedFile && selectedFile.type === 'file') {
       fetchFileContent(selectedFile.path);
     }
-  }, [selectedFile]);
+  }, [selectedFile, fetchFileContent]);
 
   const handleToggleFolder = (path: string) => {
     setExpandedFolders((prev) => {

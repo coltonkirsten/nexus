@@ -16,7 +16,6 @@ export interface Agent {
   status: AgentStatus;
   createdAt: string;
   lastActivity?: string;
-  sessionPersistence?: boolean;
   healthStatus?: string;
   healthFailures?: number;
   config?: AgentConfig;
@@ -29,12 +28,12 @@ export interface CreateAgentRequest {
 
 export interface SendMessageRequest {
   message: string;
-  sessionId?: string;
 }
 
 export interface SessionInfo {
   sessionId: string | null;
-  active: boolean;
+  persistenceEnabled: boolean;
+  filePath: string;
 }
 
 // Rich SSE log entry (as sent by cell engine)

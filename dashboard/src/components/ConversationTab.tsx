@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Circle, Trash2, Play, Square } from 'lucide-react';
+import { Send, Circle, Trash2, Play, Square, Clock } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Agent } from '../types/agent';
 import { sendMessage, clearSession, startAgent, stopAgent } from '../api/agents';
@@ -46,12 +46,43 @@ export function ConversationTab({ agent }: ConversationTabProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
+  const [queuedMessages, setQueuedMessages] = useState<Array<{ id: string; text: string }>>([]);
+
   const queryClient = useQueryClient();
   const { logs, isConnected, error, clearLogs } = useAgentLogs(agent.id);
   const { turns, isAgentRunning } = useConversationStream(logs);
 
   const isRunning = agent.status === 'running';
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
+
+  // Remove queued messages when they appear as user turns via agent_start logs
+  const prevLogCountRef = useRef(0);
+  useEffect(() => {
+    if (logs.length <= prevLogCountRef.current) {
+      prevLogCountRef.current = logs.length;
+      return;
+    }
+    // Check new logs for agent_start events
+    const newLogs = logs.slice(prevLogCountRef.current);
+    prevLogCountRef.current = logs.length;
+
+    for (const log of newLogs) {
+      if (log.type === 'agent_start') {
+        const data = log.data as { message?: string };
+        if (data.message) {
+          setQueuedMessages(prev => {
+            const idx = prev.findIndex(q => q.text === data.message);
+            if (idx !== -1) {
+              const next = [...prev];
+              next.splice(idx, 1);
+              return next;
+            }
+            return prev;
+          });
+        }
+      }
+    }
+  }, [logs]);
 
   // Start/stop mutations
   const startMutation = useMutation({
@@ -71,7 +102,11 @@ export function ConversationTab({ agent }: ConversationTabProps) {
   // Send message (fire-and-forget, watch SSE for response)
   const sendMutation = useMutation({
     mutationFn: (msg: string) => sendMessage(agent.id, { message: msg }),
-    onSuccess: () => {
+    onSuccess: (_data, msg) => {
+      // If agent is currently processing, show this as queued
+      if (isAgentRunning) {
+        setQueuedMessages(prev => [...prev, { id: crypto.randomUUID(), text: msg }]);
+      }
       setMessage('');
     },
   });
@@ -81,6 +116,7 @@ export function ConversationTab({ agent }: ConversationTabProps) {
     mutationFn: () => clearSession(agent.id),
     onSuccess: () => {
       clearLogs();
+      setQueuedMessages([]);
       queryClient.invalidateQueries({ queryKey: ['session', agent.id] });
     },
   });
@@ -189,6 +225,21 @@ export function ConversationTab({ agent }: ConversationTabProps) {
                   return null;
               }
             })}
+            {/* Queued messages */}
+            {queuedMessages.map((qm) => (
+              <div
+                key={qm.id}
+                className="flex justify-end"
+              >
+                <div className="max-w-[80%] px-4 py-3 rounded-xl border border-dashed border-[#2a2a4a] bg-[#0f0f18]/50 text-[#7a7a8e]">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="w-3 h-3 text-yellow-500/70" />
+                    <span className="text-[10px] font-medium text-yellow-500/70 uppercase tracking-wider">Queued</span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{qm.text}</p>
+                </div>
+              </div>
+            ))}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -223,6 +274,12 @@ export function ConversationTab({ agent }: ConversationTabProps) {
               <Send className="w-4 h-4" />
             </button>
           </div>
+          {queuedMessages.length > 0 && (
+            <p className="mt-2 text-xs text-yellow-500/70 flex items-center gap-1.5">
+              <Clock className="w-3 h-3" />
+              {queuedMessages.length} message{queuedMessages.length !== 1 ? 's' : ''} queued
+            </p>
+          )}
           {sendMutation.isError && (
             <p className="mt-2 text-xs text-red-400">
               Failed to send message. Please try again.

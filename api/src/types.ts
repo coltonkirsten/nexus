@@ -18,7 +18,6 @@ export interface Agent {
   containerId?: string;
   port?: number;
   status: AgentStatus;
-  sessionPersistence: boolean;
   healthStatus?: HealthStatus;
   healthFailures?: number;
   config?: RuntimeConfig;
@@ -27,7 +26,6 @@ export interface Agent {
 export interface AgentConfig {
   name: string;
   template?: string;
-  sessionPersistence?: boolean;
 }
 
 export interface Message {

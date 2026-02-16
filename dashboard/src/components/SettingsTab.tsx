@@ -274,6 +274,13 @@ export function SettingsTab({ agent }: SettingsTabProps) {
   }));
   const [configSaved, setConfigSaved] = useState(false);
 
+  useEffect(() => {
+    setConfig({
+      ...DEFAULT_CONFIG,
+      ...(agent.config || {}),
+    });
+  }, [agent.config]);
+
   // Skill modal state
   const [skillModalOpen, setSkillModalOpen] = useState(false);
   const [skillModalMode, setSkillModalMode] = useState<'create' | 'edit'>('create');

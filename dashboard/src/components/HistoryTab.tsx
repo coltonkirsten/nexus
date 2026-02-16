@@ -57,7 +57,7 @@ interface InvocationItemProps {
 function InvocationItem({ invocation }: InvocationItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const statusConfig = {
+  const statusConfig: Record<string, { icon: typeof CheckCircle; color: string; bgColor: string; label: string }> = {
     success: {
       icon: CheckCircle,
       color: 'text-emerald-400',
@@ -70,9 +70,15 @@ function InvocationItem({ invocation }: InvocationItemProps) {
       bgColor: 'bg-red-400/10',
       label: 'Error',
     },
+    running: {
+      icon: Clock,
+      color: 'text-yellow-400',
+      bgColor: 'bg-yellow-400/10',
+      label: 'Running',
+    },
   };
 
-  const status = statusConfig[invocation.status];
+  const status = statusConfig[invocation.status] || statusConfig.running;
   const StatusIcon = status.icon;
   const totalTokens = invocation.tokenUsage.input + invocation.tokenUsage.output;
 
