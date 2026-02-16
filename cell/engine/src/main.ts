@@ -192,35 +192,33 @@ async function parseSkillsIndex(): Promise<SkillMetadata[]> {
   return skills;
 }
 
-async function assembleSystemPrompt(): Promise<string> {
-  const parts: string[] = [];
-
-  // Read identity
+async function assembleSystemPrompt(): Promise<{ systemPrompt: string; appendPrompt: string }> {
+  // Read identity — stable across invocations, cached separately
   const identity = await readFileIfExists("/ledger/identity.md");
-  if (identity) {
-    parts.push("# Identity\n\n" + identity);
-  }
+  const systemPrompt = identity
+    ? "# Identity\n\n" + identity
+    : "You are an autonomous agent running in a NEXUS Cell. Complete tasks efficiently and report your progress.";
 
-  // Read memory index
+  // Read memory + skills — volatile, cached separately
+  const appendParts: string[] = [];
+
   const memory = await readFileIfExists("/ledger/memory/index.md");
   if (memory) {
-    parts.push("# Memory\n\n" + memory);
+    appendParts.push("# Memory\n\n" + memory);
   }
 
-  // Parse skills
   const skills = await parseSkillsIndex();
   if (skills.length > 0) {
     const skillsSection = skills
       .map((s) => `- **${s.name}**: ${s.description}`)
       .join("\n");
-    parts.push("# Available Skills\n\n" + skillsSection);
+    appendParts.push("# Available Skills\n\n" + skillsSection);
   }
 
-  if (parts.length === 0) {
-    return "You are an autonomous agent running in a NEXUS Cell. Complete tasks efficiently and report your progress.";
-  }
-
-  return parts.join("\n\n---\n\n");
+  return {
+    systemPrompt,
+    appendPrompt: appendParts.join("\n\n---\n\n"),
+  };
 }
 
 // Create a timeout promise for task enforcement
@@ -265,9 +263,10 @@ async function runAgent(
   });
 
   try {
-    const systemPrompt = await assembleSystemPrompt();
+    const { systemPrompt, appendPrompt } = await assembleSystemPrompt();
     addLog("system_prompt_assembled", {
-      length: systemPrompt.length,
+      systemPromptLength: systemPrompt.length,
+      appendPromptLength: appendPrompt.length,
       preview: systemPrompt.slice(0, 200),
     });
 
@@ -277,9 +276,12 @@ async function runAgent(
       ? config.allowedTools.filter((t): t is ToolName => defaultTools.includes(t as ToolName))
       : defaultTools;
 
-    // Build query options
+    // Build query options — split system prompt for optimal cache behavior:
+    // customSystemPrompt (identity) is stable and stays cached across invocations
+    // appendSystemPrompt (memory + skills) is volatile and re-cached independently
     const queryOptions: Record<string, unknown> = {
       customSystemPrompt: systemPrompt,
+      ...(appendPrompt && { appendSystemPrompt: appendPrompt }),
       allowedTools,
       permissionMode: "bypassPermissions",
       model: config.model || "claude-sonnet-4-5-20250929",
@@ -548,7 +550,10 @@ app.get("/system-prompt", async (_req: Request, res: Response) => {
     const identity = await readFileIfExists("/ledger/identity.md");
     const memory = await readFileIfExists("/ledger/memory/index.md");
     const skills = await parseSkillsIndex();
-    const assembled = await assembleSystemPrompt();
+    const { systemPrompt, appendPrompt } = await assembleSystemPrompt();
+
+    // Join both parts for display so the dashboard shows the full prompt
+    const assembled = [systemPrompt, appendPrompt].filter(Boolean).join("\n\n---\n\n");
 
     res.json({
       assembled,
