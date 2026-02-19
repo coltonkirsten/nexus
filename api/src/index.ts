@@ -16,6 +16,7 @@ import teamsRouter from './routes/teams.js';
 import { listAgents, updateAgentHealthStatus, recoverAllStuckMessages } from './services/agents.js';
 import { restartConsumersForRunningAgents } from './services/queueConsumer.js';
 import { handleTerminalConnection } from './services/terminal.js';
+import { initScheduler } from './services/cronScheduler.js';
 import type { HealthStatus } from './types.js';
 
 const app = express();
@@ -138,6 +139,11 @@ async function initialize(): Promise<void> {
     console.log('[Startup] Checking for stuck messages to recover...');
     await recoverAllStuckMessages();
     console.log('[Startup] Queue recovery complete');
+
+    // Initialize cron job scheduler
+    console.log('[Startup] Initializing cron scheduler...');
+    await initScheduler();
+    console.log('[Startup] Cron scheduler initialized');
 
     // Restart queue consumers for any agents that are still running
     await restartConsumersForRunningAgents();

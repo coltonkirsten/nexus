@@ -128,3 +128,54 @@ export interface TeamEventLog {
   teamId: string;
   events: TeamEvent[];
 }
+
+// --- Cron Jobs ---
+
+export type ScheduleKind = 'cron' | 'at' | 'every';
+
+export interface CronSchedule {
+  kind: 'cron';
+  expression: string;   // 5-field cron (min hour dom mon dow)
+  timezone?: string;     // IANA timezone, default UTC
+}
+
+export interface AtSchedule {
+  kind: 'at';
+  datetime: string;      // ISO 8601
+}
+
+export interface EverySchedule {
+  kind: 'every';
+  intervalMs: number;    // minimum 60000 (1 min)
+}
+
+export type Schedule = CronSchedule | AtSchedule | EverySchedule;
+
+export interface CronJob {
+  id: string;
+  agentId: string;
+  name: string;
+  schedule: Schedule;
+  message: string;       // content enqueued when job fires
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: 'user' | 'agent';
+  lastRunAt?: string;
+  lastRunStatus?: 'success' | 'failed' | 'skipped';
+  nextRunAt?: string;    // computed at read-time, not persisted
+  runCount: number;
+}
+
+export interface CronRunRecord {
+  jobId: string;
+  agentId: string;
+  timestamp: string;
+  status: 'enqueued' | 'skipped_agent_stopped' | 'skipped_disabled' | 'error';
+  messageId?: string;
+  error?: string;
+}
+
+export interface CronJobState {
+  jobs: CronJob[];
+}

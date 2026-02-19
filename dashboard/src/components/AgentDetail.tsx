@@ -4,19 +4,21 @@ import {
   Folder,
   Settings,
   History,
+  Clock,
 } from 'lucide-react';
 import type { Agent } from '../types/agent';
 import { ConversationTab } from './ConversationTab';
 import { WorkspaceUnifiedTab } from './WorkspaceUnifiedTab';
 import { SettingsTab } from './SettingsTab';
 import { HistoryTab } from './HistoryTab';
+import { CronTab } from './CronTab';
 
 interface AgentDetailProps {
   agent: Agent;
   initialTab?: string;
 }
 
-type TabId = 'conversation' | 'workspace' | 'settings' | 'history';
+type TabId = 'conversation' | 'workspace' | 'settings' | 'history' | 'cron';
 
 interface Tab {
   id: TabId;
@@ -29,6 +31,7 @@ const tabs: Tab[] = [
   { id: 'workspace', label: 'Workspace', icon: Folder },
   { id: 'settings', label: 'Settings', icon: Settings },
   { id: 'history', label: 'History', icon: History },
+  { id: 'cron', label: 'Cron', icon: Clock },
 ];
 
 const validTabs = new Set<string>(tabs.map(t => t.id));
@@ -53,6 +56,8 @@ export function AgentDetail({ agent, initialTab }: AgentDetailProps) {
         return <SettingsTab agent={agent} />;
       case 'history':
         return <HistoryTab agent={agent} />;
+      case 'cron':
+        return <CronTab agent={agent} />;
       default:
         return null;
     }

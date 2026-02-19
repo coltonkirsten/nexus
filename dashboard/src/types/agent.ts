@@ -128,3 +128,50 @@ export interface ConversationTurn {
   durationMs?: number;
   isStreaming?: boolean;
 }
+
+// --- Cron Jobs ---
+
+export type ScheduleKind = 'cron' | 'at' | 'every';
+
+export interface CronSchedule {
+  kind: 'cron';
+  expression: string;
+  timezone?: string;
+}
+
+export interface AtSchedule {
+  kind: 'at';
+  datetime: string;
+}
+
+export interface EverySchedule {
+  kind: 'every';
+  intervalMs: number;
+}
+
+export type Schedule = CronSchedule | AtSchedule | EverySchedule;
+
+export interface CronJob {
+  id: string;
+  agentId: string;
+  name: string;
+  schedule: Schedule;
+  message: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: 'user' | 'agent';
+  lastRunAt?: string;
+  lastRunStatus?: 'success' | 'failed' | 'skipped';
+  nextRunAt?: string;
+  runCount: number;
+}
+
+export interface CronRunRecord {
+  jobId: string;
+  agentId: string;
+  timestamp: string;
+  status: 'enqueued' | 'skipped_agent_stopped' | 'skipped_disabled' | 'error';
+  messageId?: string;
+  error?: string;
+}

@@ -43,8 +43,24 @@ import {
   getAgentVolumes,
 } from '../services/volumes.js';
 import { emitTeamEvent, getTeam } from '../services/teams.js';
+import {
+  createCronJob as createCronJobStorage,
+  getCronJob,
+  listCronJobsForAgent,
+  updateCronJob as updateCronJobStorage,
+  deleteCronJob as deleteCronJobStorage,
+  deleteAllCronJobsForAgent,
+  getCronHistory,
+} from '../services/cron.js';
+import {
+  scheduleJob,
+  unscheduleJob,
+  rescheduleJob,
+  getNextRunTime,
+  executeJob,
+} from '../services/cronScheduler.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { AgentConfig, MessageStatus } from '../types.js';
+import type { AgentConfig, MessageStatus, Schedule } from '../types.js';
 
 const router = Router();
 
@@ -81,6 +97,33 @@ function checkRateLimit(agentId: string): { allowed: boolean; remaining: number;
   rateLimitStore.set(agentId, entry);
   const resetIn = RATE_LIMIT_WINDOW_MS - (now - entry.windowStart);
   return { allowed: true, remaining: RATE_LIMIT_MAX_MESSAGES - entry.count, resetIn };
+}
+
+import { Cron } from 'croner';
+
+function validateSchedule(schedule: Schedule): string | null {
+  if (!schedule || !schedule.kind) return 'Schedule is required with a kind field';
+
+  if (schedule.kind === 'cron') {
+    if (!schedule.expression) return 'Cron expression is required';
+    try {
+      new Cron(schedule.expression, { timezone: schedule.timezone });
+    } catch (e) {
+      return `Invalid cron expression: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  } else if (schedule.kind === 'at') {
+    if (!schedule.datetime) return 'Datetime is required for at schedule';
+    const date = new Date(schedule.datetime);
+    if (isNaN(date.getTime())) return 'Invalid datetime format';
+    if (date.getTime() <= Date.now()) return 'Datetime must be in the future';
+  } else if (schedule.kind === 'every') {
+    if (!schedule.intervalMs || schedule.intervalMs < 60000) {
+      return 'Interval must be at least 60000ms (1 minute)';
+    }
+  } else {
+    return 'Invalid schedule kind. Must be cron, at, or every';
+  }
+  return null;
 }
 
 // Wait for the engine inside a container to become healthy
@@ -273,6 +316,15 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     // Stop queue consumer
     try { await stopConsumer(id); } catch { /* non-critical */ }
+
+    // Clean up cron jobs
+    try {
+      const cronJobs = await listCronJobsForAgent(id);
+      for (const job of cronJobs) {
+        unscheduleJob(job.id);
+      }
+      await deleteAllCronJobsForAgent(id);
+    } catch { /* non-critical */ }
 
     // Remove container first
     try {
@@ -1330,6 +1382,184 @@ router.get('/:id/logs/raw', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error getting raw logs:', error);
     res.status(500).json({ error: 'Failed to get raw logs' });
+  }
+});
+
+// --- Cron Job Routes ---
+
+// GET /api/agents/:id/cron - List cron jobs for agent
+router.get('/:id/cron', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const jobs = await listCronJobsForAgent(id);
+    // Enrich with computed nextRunAt
+    const enrichedJobs = jobs.map(job => ({
+      ...job,
+      nextRunAt: job.enabled ? getNextRunTime(job) : undefined,
+    }));
+    res.json({ jobs: enrichedJobs });
+  } catch (error) {
+    console.error('Error listing cron jobs:', error);
+    res.status(500).json({ error: 'Failed to list cron jobs' });
+  }
+});
+
+// POST /api/agents/:id/cron - Create cron job
+router.post('/:id/cron', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, schedule, message, createdBy = 'user' } = req.body;
+
+    if (!name || !schedule || !message) {
+      res.status(400).json({ error: 'name, schedule, and message are required' });
+      return;
+    }
+
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const validationError = validateSchedule(schedule);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+
+    const job = await createCronJobStorage(id, name, schedule, message, createdBy);
+    scheduleJob(job);
+
+    res.status(201).json({ job: { ...job, nextRunAt: getNextRunTime(job) } });
+  } catch (error) {
+    console.error('Error creating cron job:', error);
+    res.status(500).json({ error: 'Failed to create cron job' });
+  }
+});
+
+// GET /api/agents/:id/cron/:jobId - Get single cron job
+router.get('/:id/cron/:jobId', async (req: Request, res: Response) => {
+  try {
+    const { id, jobId } = req.params;
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const job = await getCronJob(jobId);
+    if (!job || job.agentId !== id) {
+      res.status(404).json({ error: 'Cron job not found' });
+      return;
+    }
+
+    res.json({ job: { ...job, nextRunAt: job.enabled ? getNextRunTime(job) : undefined } });
+  } catch (error) {
+    console.error('Error getting cron job:', error);
+    res.status(500).json({ error: 'Failed to get cron job' });
+  }
+});
+
+// PATCH /api/agents/:id/cron/:jobId - Update cron job
+router.patch('/:id/cron/:jobId', async (req: Request, res: Response) => {
+  try {
+    const { id, jobId } = req.params;
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const existing = await getCronJob(jobId);
+    if (!existing || existing.agentId !== id) {
+      res.status(404).json({ error: 'Cron job not found' });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+    const { name, schedule, message, enabled } = req.body;
+    if (name !== undefined) updates.name = name;
+    if (message !== undefined) updates.message = message;
+    if (enabled !== undefined) updates.enabled = enabled;
+    if (schedule !== undefined) {
+      const validationError = validateSchedule(schedule);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
+        return;
+      }
+      updates.schedule = schedule;
+    }
+
+    const updated = await updateCronJobStorage(jobId, updates);
+    if (!updated) {
+      res.status(404).json({ error: 'Cron job not found' });
+      return;
+    }
+
+    // Reschedule if schedule, enabled, or relevant fields changed
+    if (updated.enabled) {
+      rescheduleJob(updated);
+    } else {
+      unscheduleJob(jobId);
+    }
+
+    res.json({ job: { ...updated, nextRunAt: updated.enabled ? getNextRunTime(updated) : undefined } });
+  } catch (error) {
+    console.error('Error updating cron job:', error);
+    res.status(500).json({ error: 'Failed to update cron job' });
+  }
+});
+
+// DELETE /api/agents/:id/cron/:jobId - Delete cron job
+router.delete('/:id/cron/:jobId', async (req: Request, res: Response) => {
+  try {
+    const { id, jobId } = req.params;
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const job = await getCronJob(jobId);
+    if (!job || job.agentId !== id) {
+      res.status(404).json({ error: 'Cron job not found' });
+      return;
+    }
+
+    unscheduleJob(jobId);
+    await deleteCronJobStorage(jobId);
+
+    res.json({ success: true, message: 'Cron job deleted' });
+  } catch (error) {
+    console.error('Error deleting cron job:', error);
+    res.status(500).json({ error: 'Failed to delete cron job' });
+  }
+});
+
+// POST /api/agents/:id/cron/:jobId/trigger - Fire job now
+router.post('/:id/cron/:jobId/trigger', async (req: Request, res: Response) => {
+  try {
+    const { id, jobId } = req.params;
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const job = await getCronJob(jobId);
+    if (!job || job.agentId !== id) {
+      res.status(404).json({ error: 'Cron job not found' });
+      return;
+    }
+
+    await executeJob(jobId);
+    res.json({ success: true, message: 'Job triggered' });
+  } catch (error) {
+    console.error('Error triggering cron job:', error);
+    res.status(500).json({ error: 'Failed to trigger cron job' });
+  }
+});
+
+// GET /api/agents/:id/cron-history - Get cron run history
+router.get('/:id/cron-history', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+    if (!agent) { res.status(404).json({ error: 'Agent not found' }); return; }
+
+    const history = await getCronHistory(id);
+    res.json({ history });
+  } catch (error) {
+    console.error('Error getting cron history:', error);
+    res.status(500).json({ error: 'Failed to get cron history' });
   }
 });
 

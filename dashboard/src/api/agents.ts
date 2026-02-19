@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo } from '../types/agent';
+import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo, CronJob, CronRunRecord, Schedule } from '../types/agent';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const WS_BASE = API_BASE.replace(/^http/, 'ws');
@@ -221,4 +221,41 @@ export async function getLedgerFile(agentId: string, path: string): Promise<{ co
 
 export async function saveLedgerFile(agentId: string, path: string, content: string): Promise<void> {
   await api.put(`/api/agents/${agentId}/ledger/file?path=${encodeURIComponent(path)}`, { content });
+}
+
+// Cron Jobs API
+
+export async function listCronJobs(agentId: string): Promise<CronJob[]> {
+  const response = await api.get<{ jobs: CronJob[] }>(`/api/agents/${agentId}/cron`);
+  return response.data.jobs;
+}
+
+export async function createCronJob(
+  agentId: string,
+  data: { name: string; schedule: Schedule; message: string; createdBy?: 'user' | 'agent' }
+): Promise<CronJob> {
+  const response = await api.post<{ job: CronJob }>(`/api/agents/${agentId}/cron`, data);
+  return response.data.job;
+}
+
+export async function updateCronJob(
+  agentId: string,
+  jobId: string,
+  data: Partial<{ name: string; schedule: Schedule; message: string; enabled: boolean }>
+): Promise<CronJob> {
+  const response = await api.patch<{ job: CronJob }>(`/api/agents/${agentId}/cron/${jobId}`, data);
+  return response.data.job;
+}
+
+export async function deleteCronJob(agentId: string, jobId: string): Promise<void> {
+  await api.delete(`/api/agents/${agentId}/cron/${jobId}`);
+}
+
+export async function triggerCronJob(agentId: string, jobId: string): Promise<void> {
+  await api.post(`/api/agents/${agentId}/cron/${jobId}/trigger`);
+}
+
+export async function getCronHistory(agentId: string): Promise<CronRunRecord[]> {
+  const response = await api.get<{ history: CronRunRecord[] }>(`/api/agents/${agentId}/cron-history`);
+  return response.data.history;
 }

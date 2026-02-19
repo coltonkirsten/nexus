@@ -326,6 +326,9 @@ export async function tryProcessNext(agentId: string): Promise<void> {
   if (message.role === 'agent' && message.metadata?.fromAgentName) {
     content = `[Message from agent "${message.metadata.fromAgentName}"]: ${content}`;
   }
+  if (message.metadata?.triggerType === 'cron') {
+    content = `[Scheduled task "${message.metadata.cronJobName}"]: ${content}`;
+  }
 
   log(agentId, `Dispatching message ${message.id.slice(0, 8)}: "${content.slice(0, 50)}..."`);
 
