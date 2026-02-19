@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Plus,
   Trash2,
+  HardDrive,
 } from 'lucide-react';
 import type { Agent, AgentConfig } from '../types/agent';
 import {
@@ -26,6 +27,7 @@ import {
   type SkillData,
 } from '../api/agents';
 import { ConfirmModal } from './ConfirmModal';
+import { VolumeSlots } from './VolumeSlots';
 
 interface SettingsTabProps {
   agent: Agent;
@@ -34,7 +36,7 @@ interface SettingsTabProps {
 const MODEL_OPTIONS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
   { value: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5' },
-  { value: 'claude-opus-4-20250514', label: 'Opus 4' },
+  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
 ];
 
 const TOOL_OPTIONS = [
@@ -466,6 +468,11 @@ export function SettingsTab({ agent }: SettingsTabProps) {
               {configMutation.isError && <span className="text-xs text-red-400">Failed to save</span>}
             </div>
           </div>
+        </Section>
+
+        {/* Volume Attachments */}
+        <Section title="Volume Attachments" icon={HardDrive}>
+          <VolumeSlots agent={agent} />
         </Section>
 
         {/* Identity */}

@@ -11,6 +11,8 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import agentsRouter from './routes/agents.js';
+import volumesRouter from './routes/volumes.js';
+import teamsRouter from './routes/teams.js';
 import { listAgents, updateAgentHealthStatus, recoverAllStuckMessages } from './services/agents.js';
 import { restartConsumersForRunningAgents } from './services/queueConsumer.js';
 import { handleTerminalConnection } from './services/terminal.js';
@@ -34,6 +36,8 @@ app.get('/health', (_req, res) => {
 
 // Routes
 app.use('/api/agents', agentsRouter);
+app.use('/api/volumes', volumesRouter);
+app.use('/api/teams', teamsRouter);
 
 // Error handling middleware
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

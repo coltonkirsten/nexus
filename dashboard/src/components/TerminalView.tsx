@@ -18,7 +18,7 @@ export function TerminalView({ agent }: TerminalViewProps) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'unavailable'>('disconnected');
 
-  const isRunning = agent.status === 'running' || agent.status === 'idle' || agent.status === 'processing';
+  const isRunning = agent.status === 'running';
 
   const connect = () => {
     if (!isRunning || !termRef.current) return;

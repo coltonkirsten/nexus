@@ -13,15 +13,16 @@ import {
 } from '../services/agents.js';
 import {
   createAgentContainer,
+  recreateContainer,
   startContainer,
   stopContainer,
   removeContainer,
-  removeAgentVolumes,
   getContainerStatus,
   getContainerLogs,
 } from '../services/docker.js';
 import { sendMessage, getHealth, streamLogs, getSession, clearSession } from '../services/engine.js';
 import { startConsumer, stopConsumer, notifyNewMessage } from '../services/queueConsumer.js';
+import { broadcastPeers } from '../services/peers.js';
 import {
   initializeAgent,
   readFile_ as readVolumeFile,
@@ -33,6 +34,16 @@ import {
   updateSkill,
   deleteSkill,
 } from '../services/volume.js';
+import {
+  createVolume,
+  getVolume,
+  attachVolume,
+  detachVolume,
+  deleteVolume,
+  getAgentVolumes,
+} from '../services/volumes.js';
+import { emitTeamEvent, getTeam } from '../services/teams.js';
+import { v4 as uuidv4 } from 'uuid';
 import type { AgentConfig, MessageStatus } from '../types.js';
 
 const router = Router();
@@ -142,18 +153,54 @@ router.post('/', async (req: Request, res: Response) => {
 
     const agent = await createAgent(config);
 
-    // Create Docker container (this also creates named volumes)
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const containerId = await createAgentContainer({
-      agentId: agent.id,
-      port: agent.port!,
-      apiKey,
-    });
+    let ledgerVol: Awaited<ReturnType<typeof createVolume>> | undefined;
+    let workspaceVol: Awaited<ReturnType<typeof createVolume>> | undefined;
+    let containerId: string | undefined;
+
+    try {
+      // Create ledger and workspace volumes
+      ledgerVol = await createVolume(`${config.name}-ledger`, 'ledger');
+      workspaceVol = await createVolume(`${config.name}-workspace`, 'workspace');
+
+      // Attach volumes to agent
+      await attachVolume(ledgerVol.id, agent.id);
+      await attachVolume(workspaceVol.id, agent.id);
+      await updateAgent(agent.id, {
+        ledgerVolumeId: ledgerVol.id,
+        workspaceVolumeId: workspaceVol.id,
+      });
+
+      // Create Docker container with volume mounts
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      containerId = await createAgentContainer({
+        agentId: agent.id,
+        port: agent.port!,
+        apiKey,
+        ledgerVolume: ledgerVol.dockerVolume,
+        workspaceVolume: workspaceVol.dockerVolume,
+      });
+    } catch (innerErr) {
+      // Rollback: clean up any resources created before the failure
+      console.error(`Agent creation failed for ${agent.id}, rolling back:`, innerErr);
+      if (containerId) {
+        try { await removeContainer(agent.id); } catch { /* best-effort */ }
+      }
+      if (workspaceVol) {
+        try { await detachVolume(workspaceVol.id); } catch { /* best-effort */ }
+        try { await deleteVolume(workspaceVol.id); } catch { /* best-effort */ }
+      }
+      if (ledgerVol) {
+        try { await detachVolume(ledgerVol.id); } catch { /* best-effort */ }
+        try { await deleteVolume(ledgerVol.id); } catch { /* best-effort */ }
+      }
+      await deleteAgent(agent.id);
+      throw innerErr;
+    }
 
     // Template seeding happens at start time via engine /init endpoint
     await updateAgent(agent.id, { containerId });
 
-    res.status(201).json({ agent: { ...agent, containerId } });
+    res.status(201).json({ agent: { ...agent, containerId, ledgerVolumeId: ledgerVol.id, workspaceVolumeId: workspaceVol.id } });
   } catch (error) {
     console.error('Error creating agent:', error);
     res.status(500).json({ error: 'Failed to create agent' });
@@ -197,6 +244,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const deleteVolumes = req.query.deleteVolumes === 'true';
     const agent = await getAgent(id);
 
     if (!agent) {
@@ -204,25 +252,88 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    const warnings: string[] = [];
+
+    // Emit team event before deletion
+    if (agent.teamId) {
+      try {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'agent_deleted',
+          timestamp: new Date().toISOString(),
+          agentId: id,
+          agentName: agent.name,
+        });
+      } catch { /* best-effort */ }
+      // Clear teamId so the agent isn't counted as a team member
+      try { await updateAgent(id, { teamId: undefined }); } catch { /* best-effort */ }
+    }
+
+    // Stop queue consumer
+    try { await stopConsumer(id); } catch { /* non-critical */ }
+
     // Remove container first
     try {
       await removeContainer(id);
-    } catch {
-      // Container might not exist
+    } catch (err) {
+      const msg = `Failed to remove container for agent ${id}: ${err instanceof Error ? err.message : err}`;
+      console.error(msg);
+      warnings.push(msg);
     }
 
-    // Clean up Docker volumes
-    try {
-      await removeAgentVolumes(id);
-    } catch {
-      // Volumes might not exist
+    // Detach volumes (and optionally delete them)
+    const { ledger, workspace } = await getAgentVolumes(id);
+    if (ledger) {
+      try {
+        await detachVolume(ledger.id);
+      } catch (err) {
+        const msg = `Failed to detach ledger volume ${ledger.id}: ${err instanceof Error ? err.message : err}`;
+        console.error(msg);
+        warnings.push(msg);
+      }
+      if (deleteVolumes) {
+        try {
+          await deleteVolume(ledger.id);
+        } catch (err) {
+          const msg = `Failed to delete ledger volume ${ledger.id}: ${err instanceof Error ? err.message : err}`;
+          console.error(msg);
+          warnings.push(msg);
+        }
+      }
+    }
+    if (workspace) {
+      try {
+        await detachVolume(workspace.id);
+      } catch (err) {
+        const msg = `Failed to detach workspace volume ${workspace.id}: ${err instanceof Error ? err.message : err}`;
+        console.error(msg);
+        warnings.push(msg);
+      }
+      if (deleteVolumes) {
+        try {
+          await deleteVolume(workspace.id);
+        } catch (err) {
+          const msg = `Failed to delete workspace volume ${workspace.id}: ${err instanceof Error ? err.message : err}`;
+          console.error(msg);
+          warnings.push(msg);
+        }
+      }
     }
 
-    // Delete agent data
+    // Delete agent record (always — so user isn't stuck with undeletable agent)
     const deleted = await deleteAgent(id);
 
     if (deleted) {
-      res.json({ success: true, message: 'Agent deleted' });
+      // Broadcast updated peer list to remaining running agents
+      await broadcastPeers();
+
+      const message = deleteVolumes
+        ? 'Agent and volumes deleted'
+        : 'Agent deleted. Volumes preserved and can be attached to other agents.';
+      const response: { success: boolean; message: string; warnings?: string[] } = { success: true, message };
+      if (warnings.length > 0) response.warnings = warnings;
+      res.json(response);
     } else {
       res.status(500).json({ error: 'Failed to delete agent' });
     }
@@ -267,6 +378,21 @@ router.post('/:id/start', async (req: Request, res: Response) => {
     // Start the queue consumer for this agent
     startConsumer(id);
 
+    // Broadcast updated peer list to all running agents
+    await broadcastPeers();
+
+    // Emit team event if agent is in a team
+    if (agent.teamId) {
+      await emitTeamEvent({
+        id: uuidv4(),
+        teamId: agent.teamId,
+        type: 'agent_started',
+        timestamp: new Date().toISOString(),
+        agentId: id,
+        agentName: agent.name,
+      });
+    }
+
     res.json({ success: true, message: 'Agent started' });
   } catch (error) {
     console.error('Error starting agent:', error);
@@ -293,10 +419,190 @@ router.post('/:id/stop', async (req: Request, res: Response) => {
     await stopContainer(id);
     await updateAgent(id, { status: 'stopped' });
 
+    // Broadcast updated peer list to remaining running agents
+    await broadcastPeers();
+
+    // Emit team event if agent is in a team
+    if (agent.teamId) {
+      await emitTeamEvent({
+        id: uuidv4(),
+        teamId: agent.teamId,
+        type: 'agent_stopped',
+        timestamp: new Date().toISOString(),
+        agentId: id,
+        agentName: agent.name,
+      });
+    }
+
     res.json({ success: true, message: 'Agent stopped' });
   } catch (error) {
     console.error('Error stopping agent:', error);
     res.status(500).json({ error: 'Failed to stop agent' });
+  }
+});
+
+// POST /api/agents/:id/attach - Attach a volume to agent
+router.post('/:id/attach', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { volumeId } = req.body;
+
+    if (!volumeId) {
+      res.status(400).json({ error: 'volumeId is required' });
+      return;
+    }
+
+    const agent = await getAgent(id);
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    // Agent must be stopped
+    const status = await getContainerStatus(id);
+    if (status === 'running' || status === 'starting') {
+      res.status(400).json({ error: 'Agent must be stopped before changing volumes' });
+      return;
+    }
+
+    const volume = await getVolume(volumeId);
+    if (!volume) {
+      res.status(404).json({ error: 'Volume not found' });
+      return;
+    }
+
+    if (volume.attachedTo && volume.attachedTo !== id) {
+      res.status(409).json({ error: `Volume is already attached to another agent` });
+      return;
+    }
+
+    // Determine slot from volume type
+    const slot = volume.type; // 'ledger' | 'workspace'
+
+    // Detach existing volume in that slot
+    const existingVolId = slot === 'ledger' ? agent.ledgerVolumeId : agent.workspaceVolumeId;
+    if (existingVolId && existingVolId !== volumeId) {
+      await detachVolume(existingVolId);
+    }
+
+    // Attach new volume
+    await attachVolume(volumeId, id);
+
+    // Update agent refs
+    const agentUpdates: Record<string, unknown> = {};
+    if (slot === 'ledger') {
+      agentUpdates.ledgerVolumeId = volumeId;
+    } else {
+      agentUpdates.workspaceVolumeId = volumeId;
+    }
+
+    // Recreate container with new mounts
+    const { ledger, workspace } = await getAgentVolumes(id);
+    // Override with the new attachment
+    const ledgerDockerVol = slot === 'ledger' ? volume.dockerVolume : ledger?.dockerVolume;
+    const workspaceDockerVol = slot === 'workspace' ? volume.dockerVolume : workspace?.dockerVolume;
+
+    // Look up team shared volume if agent is in a team
+    let sharedVolume: string | undefined;
+    if (agent.teamId) {
+      const team = await getTeam(agent.teamId);
+      if (team) sharedVolume = team.sharedVolume;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const containerId = await recreateContainer({
+      agentId: id,
+      port: agent.port!,
+      apiKey,
+      ledgerVolume: ledgerDockerVol,
+      workspaceVolume: workspaceDockerVol,
+      sharedVolume,
+    });
+    agentUpdates.containerId = containerId;
+
+    await updateAgent(id, agentUpdates);
+
+    res.json({ success: true, message: `${slot} volume attached`, containerId });
+  } catch (error) {
+    console.error('Error attaching volume:', error);
+    // If recreateContainer failed, the agent has no working container
+    try { await updateAgent(req.params.id, { status: 'error' }); } catch { /* best-effort */ }
+    res.status(500).json({ error: 'Failed to attach volume' });
+  }
+});
+
+// POST /api/agents/:id/detach - Detach a volume from agent
+router.post('/:id/detach', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { slot } = req.body as { slot?: 'ledger' | 'workspace' };
+
+    if (!slot || (slot !== 'ledger' && slot !== 'workspace')) {
+      res.status(400).json({ error: 'slot must be "ledger" or "workspace"' });
+      return;
+    }
+
+    const agent = await getAgent(id);
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    // Agent must be stopped
+    const status = await getContainerStatus(id);
+    if (status === 'running' || status === 'starting') {
+      res.status(400).json({ error: 'Agent must be stopped before changing volumes' });
+      return;
+    }
+
+    const volumeId = slot === 'ledger' ? agent.ledgerVolumeId : agent.workspaceVolumeId;
+    if (!volumeId) {
+      res.status(400).json({ error: `No ${slot} volume attached` });
+      return;
+    }
+
+    // Detach
+    await detachVolume(volumeId);
+
+    // Update agent refs
+    const agentUpdates: Record<string, unknown> = {};
+    if (slot === 'ledger') {
+      agentUpdates.ledgerVolumeId = undefined;
+    } else {
+      agentUpdates.workspaceVolumeId = undefined;
+    }
+
+    // Recreate container without that mount
+    const { ledger, workspace } = await getAgentVolumes(id);
+    const ledgerDockerVol = slot === 'ledger' ? undefined : ledger?.dockerVolume;
+    const workspaceDockerVol = slot === 'workspace' ? undefined : workspace?.dockerVolume;
+
+    // Look up team shared volume if agent is in a team
+    let sharedVolume: string | undefined;
+    if (agent.teamId) {
+      const team = await getTeam(agent.teamId);
+      if (team) sharedVolume = team.sharedVolume;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const containerId = await recreateContainer({
+      agentId: id,
+      port: agent.port!,
+      apiKey,
+      ledgerVolume: ledgerDockerVol,
+      workspaceVolume: workspaceDockerVol,
+      sharedVolume,
+    });
+    agentUpdates.containerId = containerId;
+
+    await updateAgent(id, agentUpdates);
+
+    res.json({ success: true, message: `${slot} volume detached`, containerId });
+  } catch (error) {
+    console.error('Error detaching volume:', error);
+    // If recreateContainer failed, the agent has no working container
+    try { await updateAgent(req.params.id, { status: 'error' }); } catch { /* best-effort */ }
+    res.status(500).json({ error: 'Failed to detach volume' });
   }
 });
 
@@ -402,19 +708,21 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
       return;
     }
 
-    // Check rate limit
-    const rateLimit = checkRateLimit(id);
-    res.setHeader('X-RateLimit-Limit', RATE_LIMIT_MAX_MESSAGES.toString());
-    res.setHeader('X-RateLimit-Remaining', rateLimit.remaining.toString());
-    res.setHeader('X-RateLimit-Reset', Math.ceil(rateLimit.resetIn / 1000).toString());
+    // Skip rate limiting for agent-to-agent messages
+    if (role !== 'agent') {
+      const rateLimit = checkRateLimit(id);
+      res.setHeader('X-RateLimit-Limit', RATE_LIMIT_MAX_MESSAGES.toString());
+      res.setHeader('X-RateLimit-Remaining', rateLimit.remaining.toString());
+      res.setHeader('X-RateLimit-Reset', Math.ceil(rateLimit.resetIn / 1000).toString());
 
-    if (!rateLimit.allowed) {
-      res.status(429).json({
-        error: 'Too Many Requests',
-        message: `Rate limit exceeded. Max ${RATE_LIMIT_MAX_MESSAGES} messages per minute per agent.`,
-        retryAfter: Math.ceil(rateLimit.resetIn / 1000),
-      });
-      return;
+      if (!rateLimit.allowed) {
+        res.status(429).json({
+          error: 'Too Many Requests',
+          message: `Rate limit exceeded. Max ${RATE_LIMIT_MAX_MESSAGES} messages per minute per agent.`,
+          retryAfter: Math.ceil(rateLimit.resetIn / 1000),
+        });
+        return;
+      }
     }
 
     // Require agent to be running
@@ -428,6 +736,25 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
 
     // Update lastActivity
     await updateAgent(id, { lastActivity: new Date().toISOString() });
+
+    // Emit team event for inter-agent messages
+    if (role === 'agent' && agent.teamId && metadata?.fromAgentId && metadata?.fromAgentName) {
+      try {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'message_sent',
+          timestamp: new Date().toISOString(),
+          agentId: metadata.fromAgentId as string,
+          agentName: metadata.fromAgentName as string,
+          data: {
+            targetAgentId: id,
+            targetAgentName: agent.name,
+            messagePreview: message.slice(0, 200),
+          },
+        });
+      } catch { /* best-effort */ }
+    }
 
     // Notify the queue consumer to dispatch this message (or queue it if busy)
     notifyNewMessage(id);
@@ -584,12 +911,12 @@ router.get('/:id/workspace/file', async (req: Request, res: Response) => {
     }
 
     const fullPath = filePath.startsWith('/workspace') ? filePath : `/workspace/${filePath}`;
-    const content = await readVolumeFile(id, fullPath);
-    if (content === null) {
+    const result = await readVolumeFile(id, fullPath);
+    if (result === null) {
       res.status(404).json({ error: 'File not found' });
       return;
     }
-    res.json({ content });
+    res.json({ content: result.content, encoding: result.encoding });
   } catch (error) {
     console.error('Error getting workspace file:', error);
     res.status(500).json({ error: 'Failed to get file' });
@@ -633,12 +960,12 @@ router.get('/:id/ledger/file', async (req: Request, res: Response) => {
     }
 
     const fullPath = filePath.startsWith('/ledger') ? filePath : `/ledger/${filePath}`;
-    const content = await readVolumeFile(id, fullPath);
-    if (content === null) {
+    const result = await readVolumeFile(id, fullPath);
+    if (result === null) {
       res.status(404).json({ error: 'File not found' });
       return;
     }
-    res.json({ content });
+    res.json({ content: result.content, encoding: result.encoding });
   } catch (error) {
     console.error('Error getting ledger file:', error);
     res.status(500).json({ error: 'Failed to get file' });
@@ -969,6 +1296,37 @@ router.delete('/:id/skills/:skillName', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting skill:', error);
     res.status(500).json({ error: 'Failed to delete skill' });
+  }
+});
+
+// GET /api/agents/:id/logs/raw - Get raw log history (for team log drill-down)
+router.get('/:id/logs/raw', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    if (agent.port && agent.status === 'running') {
+      try {
+        const response = await fetch(`http://localhost:${agent.port}/logs/history`);
+        if (response.ok) {
+          const logs = await response.json();
+          res.json(logs);
+          return;
+        }
+      } catch {
+        // Engine not responding
+      }
+    }
+
+    res.json([]);
+  } catch (error) {
+    console.error('Error getting raw logs:', error);
+    res.status(500).json({ error: 'Failed to get raw logs' });
   }
 });
 

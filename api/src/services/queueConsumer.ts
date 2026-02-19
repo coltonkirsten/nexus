@@ -5,6 +5,8 @@ import {
   listAgents,
 } from './agents.js';
 import { sendMessage } from './engine.js';
+import { emitTeamEvent } from './teams.js';
+import { v4 as uuidv4 } from 'uuid';
 import type { RuntimeConfig } from '../types.js';
 
 // Per-agent consumer state
@@ -235,6 +237,21 @@ async function handleSSEEvent(
       }
     }
 
+    // Emit team processing_completed event
+    try {
+      const agent = await getAgent(agentId);
+      if (agent?.teamId) {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'processing_completed',
+          timestamp: new Date().toISOString(),
+          agentId,
+          agentName: agent.name,
+        });
+      }
+    } catch { /* best-effort */ }
+
     consumer.currentMessageId = null;
     consumer.isProcessing = false;
     consumer.retryCount = 0;
@@ -259,6 +276,22 @@ async function handleSSEEvent(
         console.error('[QueueConsumer] Failed to update message status:', err);
       }
     }
+
+    // Emit team processing_failed event
+    try {
+      const agent = await getAgent(agentId);
+      if (agent?.teamId) {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'processing_failed',
+          timestamp: new Date().toISOString(),
+          agentId,
+          agentName: agent.name,
+          data: { error: entry.data },
+        });
+      }
+    } catch { /* best-effort */ }
 
     consumer.currentMessageId = null;
     consumer.isProcessing = false;
@@ -288,7 +321,13 @@ export async function tryProcessNext(agentId: string): Promise<void> {
   consumer.currentMessageId = message.id;
   consumer.retryCount = 0;
 
-  log(agentId, `Dispatching message ${message.id.slice(0, 8)}: "${message.content.slice(0, 50)}..."`);
+  // Prefix inter-agent messages with sender info
+  let content = message.content;
+  if (message.role === 'agent' && message.metadata?.fromAgentName) {
+    content = `[Message from agent "${message.metadata.fromAgentName}"]: ${content}`;
+  }
+
+  log(agentId, `Dispatching message ${message.id.slice(0, 8)}: "${content.slice(0, 50)}..."`);
 
   // Get agent config for sendMessage
   const agent = await getAgent(agentId);
@@ -300,7 +339,21 @@ export async function tryProcessNext(agentId: string): Promise<void> {
     return;
   }
 
-  await dispatchMessage(agentId, message.id, message.content, agent.config);
+  await dispatchMessage(agentId, message.id, content, agent.config);
+
+  // Emit team processing_started event
+  if (agent.teamId) {
+    try {
+      await emitTeamEvent({
+        id: uuidv4(),
+        teamId: agent.teamId,
+        type: 'processing_started',
+        timestamp: new Date().toISOString(),
+        agentId,
+        agentName: agent.name,
+      });
+    } catch { /* best-effort */ }
+  }
 }
 
 async function dispatchMessage(

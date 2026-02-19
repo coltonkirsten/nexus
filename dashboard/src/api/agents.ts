@@ -26,8 +26,9 @@ export async function createAgent(data: CreateAgentRequest): Promise<Agent> {
   return response.data.agent;
 }
 
-export async function deleteAgent(id: string): Promise<void> {
-  await api.delete(`/api/agents/${id}`);
+export async function deleteAgent(id: string, deleteVolumes?: boolean): Promise<void> {
+  const params = deleteVolumes ? { deleteVolumes: 'true' } : {};
+  await api.delete(`/api/agents/${id}`, { params });
 }
 
 export async function renameAgent(agentId: string, name: string): Promise<Agent> {
@@ -197,8 +198,8 @@ export async function getWorkspaceTree(agentId: string): Promise<{ entries: File
   return response.data;
 }
 
-export async function getWorkspaceFile(agentId: string, path: string): Promise<{ content: string }> {
-  const response = await api.get<{ content: string }>(`/api/agents/${agentId}/workspace/file`, {
+export async function getWorkspaceFile(agentId: string, path: string): Promise<{ content: string; encoding?: 'utf-8' | 'base64' }> {
+  const response = await api.get<{ content: string; encoding?: 'utf-8' | 'base64' }>(`/api/agents/${agentId}/workspace/file`, {
     params: { path },
   });
   return response.data;
@@ -211,8 +212,8 @@ export async function getLedgerTree(agentId: string): Promise<{ entries: FileEnt
   return response.data;
 }
 
-export async function getLedgerFile(agentId: string, path: string): Promise<{ content: string }> {
-  const response = await api.get<{ content: string }>(`/api/agents/${agentId}/ledger/file`, {
+export async function getLedgerFile(agentId: string, path: string): Promise<{ content: string; encoding?: 'utf-8' | 'base64' }> {
+  const response = await api.get<{ content: string; encoding?: 'utf-8' | 'base64' }>(`/api/agents/${agentId}/ledger/file`, {
     params: { path },
   });
   return response.data;

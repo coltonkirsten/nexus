@@ -2,7 +2,18 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import { query } from "@anthropic-ai/claude-code";
 import { readFile, readdir, stat, writeFile, unlink, appendFile, mkdir, rm } from "fs/promises";
-import { join, normalize } from "path";
+import { join, normalize, extname } from "path";
+import { createNexusMcpServer, updatePeers, getPeers, type PeerAgent } from "./mcp.js";
+
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
+  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv',
+  '.mp3', '.wav', '.ogg', '.flac', '.aac',
+  '.pdf', '.zip', '.gz', '.tar', '.rar', '.7z',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.exe', '.dll', '.so', '.dylib',
+  '.bin', '.dat', '.db', '.sqlite',
+]);
 
 // Session persistence path
 const SESSION_FILE_PATH = "/ledger/session_id";
@@ -213,6 +224,24 @@ async function assembleSystemPrompt(): Promise<{ systemPrompt: string; appendPro
     appendParts.push("# Available Skills\n\n" + skillsSection);
   }
 
+  // Add peer agents section if peers exist
+  const peers = getPeers();
+  const agentId = process.env.AGENT_ID || "unknown";
+  const otherPeers = peers.filter((p) => p.id !== agentId);
+  if (otherPeers.length > 0) {
+    const peerLines = otherPeers
+      .map((p) => `- **${p.name}** (${p.status})`)
+      .join("\n");
+    appendParts.push(
+      "# NEXUS Peer Agents\n\n" +
+      "You can communicate with other agents in the NEXUS network. " +
+      "Use the `send_message` tool to send messages to them, and `list_agents` to see who is available.\n\n" +
+      peerLines + "\n\n" +
+      "A shared drive is mounted at `/shared` for exchanging files between agents. " +
+      "Use `shared_write` and `shared_read` for mutex-protected file operations."
+    );
+  }
+
   return {
     systemPrompt,
     appendPrompt: appendParts.join("\n\n---\n\n"),
@@ -275,6 +304,9 @@ async function runAgent(
       ? config.allowedTools.filter((t): t is ToolName => defaultTools.includes(t as ToolName))
       : defaultTools;
 
+    // Create the NEXUS MCP server for inter-agent communication
+    const nexusMcp = createNexusMcpServer();
+
     // Build query options — split system prompt for optimal cache behavior:
     // customSystemPrompt (identity) is stable and stays cached across invocations
     // appendSystemPrompt (memory + skills) is volatile and re-cached independently
@@ -287,6 +319,7 @@ async function runAgent(
       maxTurns: config.maxTurns || 50,
       cwd: "/workspace",
       abortSignal: abortController.signal,
+      mcpServers: { "nexus-intercom": nexusMcp },
     };
 
     // Add resume option if we have a session to resume
@@ -676,9 +709,21 @@ app.post("/session/clear", async (_req: Request, res: Response) => {
   }
 });
 
+// POST /peers - Update peer agent list (called by NEXUS API)
+app.post("/peers", (req: Request, res: Response) => {
+  const { peers } = req.body as { peers?: PeerAgent[] };
+  if (!Array.isArray(peers)) {
+    res.status(400).json({ error: "peers array is required" });
+    return;
+  }
+  updatePeers(peers);
+  addLog("peers_updated", { count: peers.length });
+  res.json({ success: true, count: peers.length });
+});
+
 // --- Filesystem API ---
 
-const ALLOWED_ROOTS = ["/ledger", "/workspace"];
+const ALLOWED_ROOTS = ["/ledger", "/workspace", "/shared"];
 
 function validatePath(requestedPath: string): { valid: boolean; resolved: string; error?: string } {
   const resolved = normalize(requestedPath);
@@ -762,14 +807,28 @@ app.get("/files/read", async (req: Request, res: Response) => {
   }
 
   try {
-    const content = await readFile(validation.resolved, "utf-8");
     const fileStat = await stat(validation.resolved);
-    res.json({
-      path: validation.resolved,
-      content,
-      size: fileStat.size,
-      modifiedAt: fileStat.mtime.toISOString(),
-    });
+    const isBinary = BINARY_EXTENSIONS.has(extname(validation.resolved).toLowerCase());
+
+    if (isBinary) {
+      const buffer = await readFile(validation.resolved);
+      res.json({
+        path: validation.resolved,
+        content: buffer.toString("base64"),
+        encoding: "base64",
+        size: fileStat.size,
+        modifiedAt: fileStat.mtime.toISOString(),
+      });
+    } else {
+      const content = await readFile(validation.resolved, "utf-8");
+      res.json({
+        path: validation.resolved,
+        content,
+        encoding: "utf-8",
+        size: fileStat.size,
+        modifiedAt: fileStat.mtime.toISOString(),
+      });
+    }
   } catch {
     res.status(404).json({ error: "File not found" });
   }

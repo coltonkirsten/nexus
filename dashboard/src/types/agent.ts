@@ -1,5 +1,19 @@
 export type AgentStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
 
+export type VolumeType = 'ledger' | 'workspace';
+
+export interface Volume {
+  id: string;
+  name: string;
+  type: VolumeType;
+  dockerVolume: string;
+  createdAt: string;
+  attachedTo?: string;
+  template?: string;
+  description?: string;
+  clonedFrom?: string;
+}
+
 export interface AgentConfig {
   model?: string;
   maxTurns?: number;
@@ -19,6 +33,9 @@ export interface Agent {
   healthStatus?: string;
   healthFailures?: number;
   config?: AgentConfig;
+  ledgerVolumeId?: string;
+  workspaceVolumeId?: string;
+  teamId?: string;
 }
 
 export interface CreateAgentRequest {
@@ -34,6 +51,37 @@ export interface SessionInfo {
   sessionId: string | null;
   persistenceEnabled: boolean;
   filePath: string;
+}
+
+// --- Teams ---
+
+export interface Team {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  sharedVolume: string;
+}
+
+export type TeamEventType =
+  | 'agent_joined'
+  | 'agent_left'
+  | 'agent_started'
+  | 'agent_stopped'
+  | 'agent_deleted'
+  | 'message_sent'
+  | 'processing_started'
+  | 'processing_completed'
+  | 'processing_failed';
+
+export interface TeamEvent {
+  id: string;
+  teamId: string;
+  type: TeamEventType;
+  timestamp: string;
+  agentId: string;
+  agentName: string;
+  data?: Record<string, unknown>;
 }
 
 // Rich SSE log entry (as sent by cell engine)

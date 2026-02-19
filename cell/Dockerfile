@@ -60,6 +60,7 @@ COPY --chown=agent:agent --from=builder /build/dist/ /opt/engine/dist/
 # the image's directory permissions into the volume on first use.
 RUN mkdir -p /ledger/memory /ledger/skills && chown -R agent:agent /ledger
 RUN mkdir -p /workspace && chown -R agent:agent /workspace
+RUN mkdir -p /shared && chown -R agent:agent /shared
 
 # Switch back to workspace
 WORKDIR /workspace

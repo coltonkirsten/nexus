@@ -41,6 +41,30 @@ function getLanguageFromPath(path: string): string {
   return languageMap[ext] || 'plaintext';
 }
 
+function getMimeType(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const mimeMap: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+    bmp: 'image/bmp', ico: 'image/x-icon', webp: 'image/webp', svg: 'image/svg+xml',
+    mp4: 'video/mp4', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
+    mov: 'video/quicktime', webm: 'video/webm', flv: 'video/x-flv', wmv: 'video/x-ms-wmv',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac',
+    pdf: 'application/pdf', zip: 'application/zip', gz: 'application/gzip',
+    tar: 'application/x-tar', rar: 'application/vnd.rar',
+  };
+  return mimeMap[ext] || 'application/octet-stream';
+}
+
+function isImageFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'ico'].includes(ext);
+}
+
+function isVideoFile(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return ['mp4', 'webm', 'mov'].includes(ext);
+}
+
 // Basic syntax highlighting colors
 function highlightSyntax(content: string, language: string): React.ReactNode[] {
   const lines = content.split('\n');
@@ -237,6 +261,7 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
   const [fileTree, setFileTree] = useState<FileTree | null>(null);
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
+  const [fileEncoding, setFileEncoding] = useState<'utf-8' | 'base64'>('utf-8');
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [isLoadingTree, setIsLoadingTree] = useState(true);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
@@ -262,10 +287,12 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
   const fetchFileContent = useCallback(async (path: string) => {
     setIsLoadingContent(true);
     setFileContent(null);
+    setFileEncoding('utf-8');
 
     try {
       const data = await getWorkspaceFile(agent.id, path);
       setFileContent(data.content);
+      setFileEncoding(data.encoding || 'utf-8');
     } catch {
       setFileContent(null);
       setError('Failed to load file content');
@@ -299,7 +326,20 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
   const handleDownload = () => {
     if (!selectedFile || !fileContent) return;
 
-    const blob = new Blob([fileContent], { type: 'text/plain' });
+    const mimeType = getMimeType(selectedFile.name);
+    let blob: Blob;
+
+    if (fileEncoding === 'base64') {
+      const binaryStr = atob(fileContent);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      blob = new Blob([bytes], { type: mimeType });
+    } else {
+      blob = new Blob([fileContent], { type: mimeType });
+    }
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -389,9 +429,34 @@ export function WorkspaceTab({ agent }: WorkspaceTabProps) {
                   <RefreshCw className="w-5 h-5 animate-spin" />
                 </div>
               ) : fileContent !== null ? (
-                <pre className="font-mono text-sm text-[#e0e0e8] leading-relaxed">
-                  {highlightSyntax(fileContent, language)}
-                </pre>
+                fileEncoding === 'base64' ? (
+                  isImageFile(selectedFile.name) ? (
+                    <div className="flex items-center justify-center h-full">
+                      <img
+                        src={`data:${getMimeType(selectedFile.name)};base64,${fileContent}`}
+                        alt={selectedFile.name}
+                        className="max-w-full max-h-full object-contain rounded"
+                      />
+                    </div>
+                  ) : isVideoFile(selectedFile.name) ? (
+                    <div className="flex items-center justify-center h-full">
+                      <video
+                        controls
+                        className="max-w-full max-h-full rounded"
+                        src={`data:${getMimeType(selectedFile.name)};base64,${fileContent}`}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-[#4a4a5e]">
+                      <File className="w-12 h-12 mb-3 text-[#1e1e3a]" />
+                      <p className="text-sm">Binary file — click Download to save</p>
+                    </div>
+                  )
+                ) : (
+                  <pre className="font-mono text-sm text-[#e0e0e8] leading-relaxed">
+                    {highlightSyntax(fileContent, language)}
+                  </pre>
+                )
               ) : (
                 <div className="flex items-center justify-center h-full text-[#4a4a5e]">
                   Failed to load file content

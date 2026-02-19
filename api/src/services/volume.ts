@@ -3,8 +3,24 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import { getAgent } from './agents.js';
-import { getContainerStatus, copyFromContainer } from './docker.js';
+import { getContainerStatus, copyFromContainer, readFromVolume as readFromDockerVolume } from './docker.js';
 import tar from 'tar-stream';
+import type { Volume } from '../types.js';
+
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
+  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv',
+  '.mp3', '.wav', '.ogg', '.flac', '.aac',
+  '.pdf', '.zip', '.gz', '.tar', '.rar', '.7z',
+  '.woff', '.woff2', '.ttf', '.otf', '.eot',
+  '.exe', '.dll', '.so', '.dylib',
+  '.bin', '.dat', '.db', '.sqlite',
+]);
+
+export interface FileContent {
+  content: string;
+  encoding: 'utf-8' | 'base64';
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.resolve(__dirname, '../../../templates');
@@ -35,28 +51,30 @@ async function engineFetch(agentId: string, path: string, options?: RequestInit)
 
 // --- Docker cp helpers (used when container is stopped) ---
 
-async function readFileViaTar(agentId: string, containerPath: string): Promise<string | null> {
+async function readFileViaTar(agentId: string, containerPath: string): Promise<FileContent | null> {
   try {
+    const isBinary = BINARY_EXTENSIONS.has(path.extname(containerPath).toLowerCase());
     const archiveStream = await copyFromContainer(agentId, containerPath);
-    return await new Promise<string | null>((resolve, reject) => {
+    return await new Promise<FileContent | null>((resolve, reject) => {
       const extract = tar.extract();
-      let content = '';
-      let found = false;
+      let result: FileContent | null = null;
 
       extract.on('entry', (header, stream, next) => {
         const chunks: Buffer[] = [];
         stream.on('data', (chunk: Buffer) => chunks.push(chunk));
         stream.on('end', () => {
           if (!header.name.endsWith('/')) {
-            content = Buffer.concat(chunks).toString('utf-8');
-            found = true;
+            const buf = Buffer.concat(chunks);
+            result = isBinary
+              ? { content: buf.toString('base64'), encoding: 'base64' }
+              : { content: buf.toString('utf-8'), encoding: 'utf-8' };
           }
           next();
         });
         stream.resume();
       });
 
-      extract.on('finish', () => resolve(found ? content : null));
+      extract.on('finish', () => resolve(result));
       extract.on('error', reject);
 
       if (archiveStream instanceof Readable) {
@@ -122,13 +140,13 @@ async function isRunning(agentId: string): Promise<boolean> {
   return status === 'running';
 }
 
-export async function readFile_(agentId: string, containerPath: string): Promise<string | null> {
+export async function readFile_(agentId: string, containerPath: string): Promise<FileContent | null> {
   if (await isRunning(agentId)) {
     try {
       const response = await engineFetch(agentId, `/files/read?path=${encodeURIComponent(containerPath)}`);
       if (response.ok) {
-        const data = await response.json() as { content: string };
-        return data.content;
+        const data = await response.json() as { content: string; encoding?: 'utf-8' | 'base64' };
+        return { content: data.content, encoding: data.encoding || 'utf-8' };
       }
       return null;
     } catch {
@@ -235,14 +253,14 @@ export async function getSkill(agentId: string, skillName: string): Promise<Skil
   }
 
   // Fallback: read SKILL.md from the skill directory
-  const content = await readFileViaTar(agentId, `/ledger/skills/${skillName}/SKILL.md`);
-  if (!content) return null;
+  const result = await readFileViaTar(agentId, `/ledger/skills/${skillName}/SKILL.md`);
+  if (!result) return null;
 
   return {
     name: skillName,
     description: '',
     path: `/ledger/skills/${skillName}`,
-    content,
+    content: result.content,
   };
 }
 
@@ -308,6 +326,121 @@ export async function deleteSkill(agentId: string, skillName: string): Promise<b
 
   // Cannot delete via docker cp on stopped containers
   return false;
+}
+
+// --- Volume-aware file access (works for attached AND detached volumes) ---
+
+function parseTarFile(archiveStream: NodeJS.ReadableStream, filePath: string): Promise<FileContent | null> {
+  const isBinary = BINARY_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+  return new Promise<FileContent | null>((resolve, reject) => {
+    const extract = tar.extract();
+    let result: FileContent | null = null;
+
+    extract.on('entry', (header, stream, next) => {
+      const chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => {
+        if (!header.name.endsWith('/')) {
+          const buf = Buffer.concat(chunks);
+          result = isBinary
+            ? { content: buf.toString('base64'), encoding: 'base64' }
+            : { content: buf.toString('utf-8'), encoding: 'utf-8' };
+        }
+        next();
+      });
+      stream.resume();
+    });
+
+    extract.on('finish', () => resolve(result));
+    extract.on('error', reject);
+
+    if (archiveStream instanceof Readable) {
+      archiveStream.pipe(extract);
+    } else {
+      (archiveStream as NodeJS.ReadableStream).pipe(extract);
+    }
+  });
+}
+
+function parseTarDirectory(archiveStream: NodeJS.ReadableStream, containerPath: string): Promise<DirectoryEntry[]> {
+  return new Promise<DirectoryEntry[]>((resolve, reject) => {
+    const extract = tar.extract();
+    const entries: DirectoryEntry[] = [];
+
+    extract.on('entry', (header, stream, next) => {
+      const entryPath = header.name;
+      if (entryPath && entryPath !== './') {
+        const name = path.basename(entryPath.replace(/\/$/, ''));
+        const isDir = header.type === 'directory';
+        entries.push({
+          name,
+          type: isDir ? 'directory' : 'file',
+          path: path.join(containerPath, entryPath.replace(/\/$/, '')),
+          size: isDir ? undefined : header.size,
+        });
+      }
+      stream.resume();
+      next();
+    });
+
+    extract.on('finish', () => resolve(entries));
+    extract.on('error', reject);
+
+    if (archiveStream instanceof Readable) {
+      archiveStream.pipe(extract);
+    } else {
+      (archiveStream as NodeJS.ReadableStream).pipe(extract);
+    }
+  });
+}
+
+/**
+ * Read a file from a volume, regardless of whether it's attached to a running agent.
+ * If attached → proxy through agent's engine.
+ * If detached → use readFromVolume temp container.
+ */
+export async function readVolumeFileByVolume(volume: Volume, relativePath: string): Promise<FileContent | null> {
+  if (volume.attachedTo) {
+    // Try via the agent's engine/container
+    const containerPath = volume.type === 'ledger'
+      ? (relativePath.startsWith('/ledger') ? relativePath : `/ledger/${relativePath}`)
+      : (relativePath.startsWith('/workspace') ? relativePath : `/workspace/${relativePath}`);
+
+    const result = await readFile_(volume.attachedTo, containerPath);
+    if (result !== null) return result;
+  }
+
+  // Detached or agent-based read failed — use temp container
+  try {
+    const volPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
+    const archiveStream = await readFromDockerVolume(volume.dockerVolume, volPath);
+    return await parseTarFile(archiveStream, volPath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * List directory entries from a volume, regardless of attachment.
+ */
+export async function listVolumeDirectoryByVolume(volume: Volume, relativePath: string): Promise<DirectoryEntry[]> {
+  if (volume.attachedTo) {
+    const containerPath = volume.type === 'ledger'
+      ? (relativePath.startsWith('/ledger') ? relativePath : `/ledger/${relativePath}`)
+      : (relativePath.startsWith('/workspace') ? relativePath : `/workspace/${relativePath}`);
+
+    const result = await listDirectory(volume.attachedTo, containerPath);
+    if (result.length > 0) return result;
+  }
+
+  // Detached or agent-based list failed
+  try {
+    const volPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
+    const archiveStream = await readFromDockerVolume(volume.dockerVolume, volPath);
+    return await parseTarDirectory(archiveStream, volPath);
+  } catch {
+    return [];
+  }
 }
 
 // --- Template initialization (via engine HTTP, called after container is running) ---

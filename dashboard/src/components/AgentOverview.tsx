@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, NavLink } from 'react-router-dom';
 import { Plus, Cpu, Play, Square, Trash2, Pencil, Check, X, Loader2 } from 'lucide-react';
 import type { Agent } from '../types/agent';
 import { listAgents, startAgent, stopAgent, deleteAgent, renameAgent } from '../api/agents';
 import { CreateAgentModal } from './CreateAgentModal';
-import { ConfirmModal } from './ConfirmModal';
 
 function AgentCard({ agent }: { agent: Agent }) {
   const navigate = useNavigate();
@@ -14,6 +13,7 @@ function AgentCard({ agent }: { agent: Agent }) {
   const [newName, setNewName] = useState(agent.name);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteVolumesToo, setDeleteVolumesToo] = useState(false);
   const isRunning = agent.status === 'running';
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
 
@@ -46,8 +46,11 @@ function AgentCard({ agent }: { agent: Agent }) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteAgent(agent.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+    mutationFn: (deleteVols: boolean) => deleteAgent(agent.id, deleteVols),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      queryClient.invalidateQueries({ queryKey: ['volumes'] });
+    },
   });
 
   const renameMutation = useMutation({
@@ -182,18 +185,49 @@ function AgentCard({ agent }: { agent: Agent }) {
         </button>
       </div>
 
-      <ConfirmModal
-        isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={() => {
-          setShowDeleteConfirm(false);
-          deleteMutation.mutate();
-        }}
-        title="Delete Agent"
-        message={`Are you sure you want to delete "${agent.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        variant="danger"
-      />
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative w-full max-w-sm bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a] p-6">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                <Trash2 className="w-6 h-6 text-red-400" />
+              </div>
+              <h3 className="text-sm font-semibold text-[#e0e0e8] mb-2">Delete Agent</h3>
+              <p className="text-xs text-[#7a7a8e] mb-4 leading-relaxed">
+                The agent will be removed but its volumes will be preserved and can be attached to other agents.
+              </p>
+              <label className="flex items-center gap-2 mb-6 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={deleteVolumesToo}
+                  onChange={(e) => setDeleteVolumesToo(e.target.checked)}
+                  className="rounded border-[#1e1e3a] bg-[#0f0f18] text-red-500 focus:ring-red-500/50"
+                />
+                <span className="text-xs text-[#7a7a8e]">Also delete volumes</span>
+              </label>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteVolumesToo(false); }}
+                  className="flex-1 px-4 py-2 text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl text-sm transition-all duration-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    deleteMutation.mutate(deleteVolumesToo);
+                    setDeleteVolumesToo(false);
+                  }}
+                  className="flex-1 px-4 py-2 text-white text-sm rounded-xl transition-all duration-200 bg-red-600 hover:bg-red-500"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -226,6 +260,48 @@ export function AgentOverview() {
             <Plus className="w-4 h-4" />
             Create Agent
           </button>
+        </div>
+        {/* Nav tabs */}
+        <div className="max-w-7xl mx-auto px-8">
+          <nav className="flex gap-6">
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) =>
+                `pb-3 text-sm transition-all duration-200 border-b-2 ${
+                  isActive
+                    ? 'text-indigo-400 border-indigo-400'
+                    : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
+                }`
+              }
+            >
+              Agents
+            </NavLink>
+            <NavLink
+              to="/teams"
+              className={({ isActive }) =>
+                `pb-3 text-sm transition-all duration-200 border-b-2 ${
+                  isActive
+                    ? 'text-indigo-400 border-indigo-400'
+                    : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
+                }`
+              }
+            >
+              Teams
+            </NavLink>
+            <NavLink
+              to="/volumes"
+              className={({ isActive }) =>
+                `pb-3 text-sm transition-all duration-200 border-b-2 ${
+                  isActive
+                    ? 'text-indigo-400 border-indigo-400'
+                    : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
+                }`
+              }
+            >
+              Volumes
+            </NavLink>
+          </nav>
         </div>
       </header>
 
