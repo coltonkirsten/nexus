@@ -2,7 +2,7 @@
   "name": "Researcher",
   "description": "An information gathering agent. Searches the web, evaluates sources, synthesizes findings, and produces well-cited research.",
   "default_config": {
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "claude-haiku-4-5-20251001",
     "max_turns": 100,
     "timeout": 1200
   }

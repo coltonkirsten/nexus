@@ -2,7 +2,7 @@
   "name": "Writer",
   "description": "A content creation agent. Writes, edits, and formats content. Adapts to different styles and audiences.",
   "default_config": {
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "claude-haiku-4-5-20251001",
     "max_turns": 50,
     "timeout": 600
   }

@@ -54,6 +54,7 @@ export async function createAgentContainer(config: ContainerConfig): Promise<str
     name: containerName,
     Env: [
       `AGENT_ID=${config.agentId}`,
+      ...(config.agentName ? [`AGENT_NAME=${config.agentName}`] : []),
       `ENGINE_PORT=${INTERNAL_PORT}`,
       `NEXUS_API_URL=http://host.docker.internal:${process.env.API_PORT || 3001}`,
       ...(config.apiKey ? [`ANTHROPIC_API_KEY=${config.apiKey}`] : []),

@@ -72,6 +72,7 @@ export interface MessageQueue {
 
 export interface ContainerConfig {
   agentId: string;
+  agentName?: string;
   port: number;
   apiKey?: string;
   ledgerVolume?: string;     // Docker volume name for /ledger mount

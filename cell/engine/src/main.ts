@@ -204,9 +204,11 @@ async function parseSkillsIndex(): Promise<SkillMetadata[]> {
 async function assembleSystemPrompt(): Promise<{ systemPrompt: string; appendPrompt: string }> {
   // Read identity — stable across invocations, cached separately
   const identity = await readFileIfExists("/ledger/identity.md");
+  const agentName = process.env.AGENT_NAME || "Agent";
+  const nameHeader = `Your name is **${agentName}**.\n\n`;
   const systemPrompt = identity
-    ? "# Identity\n\n" + identity
-    : "You are an autonomous agent running in a NEXUS Cell. Complete tasks efficiently and report your progress.";
+    ? nameHeader + "# Identity\n\n" + identity
+    : nameHeader + "You are an autonomous agent running in a NEXUS Cell. Complete tasks efficiently and report your progress.";
 
   // Read memory + skills — volatile, cached separately
   const appendParts: string[] = [];
@@ -315,7 +317,7 @@ async function runAgent(
       ...(appendPrompt && { appendSystemPrompt: appendPrompt }),
       allowedTools,
       permissionMode: "bypassPermissions",
-      model: config.model || "claude-sonnet-4-5-20250929",
+      model: config.model || "claude-haiku-4-5-20251001",
       maxTurns: config.maxTurns || 50,
       cwd: "/workspace",
       abortSignal: abortController.signal,

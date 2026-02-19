@@ -174,6 +174,7 @@ router.post('/', async (req: Request, res: Response) => {
       const apiKey = process.env.ANTHROPIC_API_KEY;
       containerId = await createAgentContainer({
         agentId: agent.id,
+        agentName: config.name,
         port: agent.port!,
         apiKey,
         ledgerVolume: ledgerVol.dockerVolume,
@@ -512,6 +513,7 @@ router.post('/:id/attach', async (req: Request, res: Response) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     const containerId = await recreateContainer({
       agentId: id,
+      agentName: agent.name,
       port: agent.port!,
       apiKey,
       ledgerVolume: ledgerDockerVol,
@@ -587,6 +589,7 @@ router.post('/:id/detach', async (req: Request, res: Response) => {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     const containerId = await recreateContainer({
       agentId: id,
+      agentName: agent.name,
       port: agent.port!,
       apiKey,
       ledgerVolume: ledgerDockerVol,

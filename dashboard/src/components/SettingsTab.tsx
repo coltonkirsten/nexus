@@ -35,7 +35,7 @@ interface SettingsTabProps {
 
 const MODEL_OPTIONS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-  { value: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5' },
+  { value: 'claude-sonnet-4-6-20250514', label: 'Sonnet 4.6' },
   { value: 'claude-opus-4-6', label: 'Opus 4.6' },
 ];
 
@@ -49,7 +49,7 @@ const TOOL_OPTIONS = [
 ];
 
 const DEFAULT_CONFIG: Required<AgentConfig> = {
-  model: 'claude-sonnet-4-5-20250929',
+  model: 'claude-haiku-4-5-20251001',
   maxTurns: 50,
   timeout: 300,
   allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],

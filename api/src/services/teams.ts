@@ -185,6 +185,7 @@ export async function addAgentToTeam(agentId: string, teamId: string): Promise<v
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const containerId = await recreateContainer({
     agentId,
+    agentName: agent.name,
     port: agent.port!,
     apiKey,
     ledgerVolume: ledger?.dockerVolume,
@@ -225,6 +226,7 @@ export async function removeAgentFromTeam(agentId: string): Promise<void> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const containerId = await recreateContainer({
     agentId,
+    agentName: agent.name,
     port: agent.port!,
     apiKey,
     ledgerVolume: ledger?.dockerVolume,

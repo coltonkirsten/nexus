@@ -2,7 +2,7 @@
   "name": "Coder",
   "description": "A software development agent. Writes code, runs tests, debugs issues, and follows engineering best practices.",
   "default_config": {
-    "model": "claude-sonnet-4-5-20250929",
+    "model": "claude-haiku-4-5-20251001",
     "max_turns": 75,
     "timeout": 900
   }
