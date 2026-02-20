@@ -1123,18 +1123,24 @@ router.get('/:id/history', async (req: Request, res: Response) => {
               invocations.push(currentInvocation);
               currentInvocation = null;
             } else if (log.type === 'agent_message' && currentInvocation) {
-              const data = log.data as { type?: string; message?: { content?: Array<{ text?: string }> }; duration_ms?: number; usage?: { input_tokens?: number; output_tokens?: number }; total_cost_usd?: number; result?: string };
-              if (data.type === 'assistant' && data.message?.content?.[0]) {
-                const content = data.message.content[0];
-                if ('text' in content) {
-                  currentInvocation.result = content.text || '';
+              const data = log.data as { type?: string; message?: { content?: Array<{ text?: string }> }; content?: Array<{ text?: string }>; duration_ms?: number; usage?: { input_tokens?: number; output_tokens?: number }; total_cost_usd?: number; result?: string };
+              if (data.type === 'assistant') {
+                // Check both data.message.content (SDK format) and data.content (CLI format)
+                const contentArr = data.message?.content || data.content;
+                if (contentArr?.[0]) {
+                  const content = contentArr[0];
+                  if ('text' in content) {
+                    currentInvocation.result = content.text || '';
+                  }
                 }
               }
               if (data.type === 'result') {
                 currentInvocation.durationMs = data.duration_ms || 0;
+                // Check both data.usage (top-level) and data.message-level usage
+                const usage = data.usage;
                 currentInvocation.tokenUsage = {
-                  input: data.usage?.input_tokens || 0,
-                  output: data.usage?.output_tokens || 0
+                  input: usage?.input_tokens || 0,
+                  output: usage?.output_tokens || 0
                 };
                 currentInvocation.costUsd = data.total_cost_usd || 0;
                 currentInvocation.result = data.result || currentInvocation.result;
@@ -1160,6 +1166,40 @@ router.get('/:id/history', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error getting history:', error);
     res.status(500).json({ error: 'Failed to get history' });
+  }
+});
+
+// POST /api/agents/:id/cancel - Cancel running task (proxy to engine)
+router.post('/:id/cancel', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    if (!agent.port || agent.status !== 'running') {
+      res.status(400).json({ error: 'Agent is not running' });
+      return;
+    }
+
+    const response = await fetch(`http://localhost:${agent.port}/cancel`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      const body = await response.json() as { error?: string };
+      res.status(response.status).json(body);
+      return;
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Error cancelling task:', error);
+    res.status(500).json({ error: 'Failed to cancel task' });
   }
 });
 

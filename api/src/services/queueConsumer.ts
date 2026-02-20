@@ -26,8 +26,8 @@ const MAX_RETRIES = 3;
 const RETRY_BACKOFF_BASE_MS = 2000;
 const BUSY_RETRY_DELAY_MS = 2000;
 const SSE_RECONNECT_DELAY_MS = 5000;
-// Safety drain timeout: default task timeout (10 min) + 30s buffer
-const DRAIN_TIMEOUT_MS = 630000;
+// Safety drain timeout: generous safety net for missed SSE events (1 hour)
+const DRAIN_TIMEOUT_MS = 3600000;
 
 function log(agentId: string, msg: string): void {
   console.log(`[QueueConsumer:${agentId.slice(0, 8)}] ${msg}`);

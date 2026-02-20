@@ -45,6 +45,10 @@ export async function startAgent(id: string): Promise<void> {
   await api.post(`/api/agents/${id}/start`);
 }
 
+export async function cancelAgentTask(agentId: string): Promise<void> {
+  await api.post(`/api/agents/${agentId}/cancel`);
+}
+
 export async function stopAgent(id: string): Promise<void> {
   await api.post(`/api/agents/${id}/stop`);
 }

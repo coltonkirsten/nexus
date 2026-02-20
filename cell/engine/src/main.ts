@@ -23,14 +23,12 @@ const BINARY_EXTENSIONS = new Set([
 const SESSION_FILE_PATH = "/ledger/session_id";
 
 // Constants
-const DEFAULT_TASK_TIMEOUT = 600000; // 10 minutes
 const SHUTDOWN_GRACE_PERIOD = 30000; // 30 seconds
 
 // Types
 interface MessageRequest {
   message: string;
   config?: AgentConfig;
-  timeout?: number; // Task timeout in milliseconds
   waitForResponse?: boolean;
 }
 
@@ -264,31 +262,19 @@ async function assembleSystemPrompt(): Promise<{ systemPrompt: string; appendPro
   };
 }
 
-// Create a timeout promise for task enforcement
-function createTimeoutPromise(timeoutMs: number, abortController: AbortController): { promise: Promise<never>; cleanup: () => void } {
-  let timerId: ReturnType<typeof setTimeout>;
-  const promise = new Promise<never>((_, reject) => {
-    timerId = setTimeout(() => {
-      abortController.abort();
-      reject(new Error(`Task timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-  return {
-    promise,
-    cleanup: () => clearTimeout(timerId!)
-  };
-}
+// Module-level abort controller for cancel support
+let currentAbortController: AbortController | null = null;
 
 async function runAgent(
   message: string,
   config: AgentConfig = {},
-  taskTimeout: number = DEFAULT_TASK_TIMEOUT
 ): Promise<string> {
   // Set task running state
   isTaskRunning = true;
 
-  // Create abort controller for timeout
+  // Create abort controller for manual cancellation
   const abortController = new AbortController();
+  currentAbortController = abortController;
 
   // Load existing session ID for persistence
   let resumeSessionId: string | null = null;
@@ -303,7 +289,6 @@ async function runAgent(
     config,
     sessionPersistence: true,
     resumingSession: !!resumeSessionId,
-    timeout: taskTimeout
   });
 
   try {
@@ -325,9 +310,23 @@ async function runAgent(
     let invocationOutputTokens = 0;
     let resultText = "";
 
+    addLog("cell_mode", { mode: CELL_MODE });
+
     if (CELL_MODE === "cli") {
       // --- CLI mode: spawn the claude binary ---
       const cliOnLogEntry = (type: string, data: unknown) => {
+        // Normalize CLI agent_message format to match SDK format
+        // CLI outputs { type: "assistant", content: [...] } without the `message` wrapper
+        // SDK outputs { type: "assistant", message: { content: [...] } }
+        if (type === "agent_message" && data && typeof data === "object") {
+          const msg = data as Record<string, unknown>;
+          if (msg.type === "assistant" && Array.isArray(msg.content) && !msg.message) {
+            msg.message = { content: msg.content };
+          }
+          if (msg.type === "user" && Array.isArray(msg.content) && !msg.message) {
+            msg.message = { content: msg.content };
+          }
+        }
         addLog(type, data);
 
         // Extract session_id from system init messages (same as SDK path)
@@ -476,16 +475,7 @@ async function runAgent(
         }
       };
 
-      // Race between task completion and timeout
-      const timeout = createTimeoutPromise(taskTimeout, abortController);
-      try {
-        await Promise.race([
-          agentTask(),
-          timeout.promise
-        ]);
-      } finally {
-        timeout.cleanup();
-      }
+      await agentTask();
     }
 
     // Update invocation count
@@ -516,23 +506,13 @@ async function runAgent(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : String(error);
-    const isTimeout = errorMessage.includes("timed out");
     const isAborted = errorMessage.includes("aborted") || abortController.signal.aborted;
 
     addLog("agent_error", {
       error: errorMessage,
-      isTimeout,
       isAborted,
       recovered: true
     });
-
-    // Log specific error types for better debugging
-    if (isTimeout) {
-      addLog("task_timeout", {
-        timeout: taskTimeout,
-        message: `Task exceeded timeout of ${taskTimeout}ms`
-      });
-    }
 
     // Don't rethrow - return to idle state for error recovery
     addLog("agent_recovered", {
@@ -540,8 +520,9 @@ async function runAgent(
     });
     return "";
   } finally {
-    // Always reset task running state
+    // Always reset task running state and clear abort controller
     isTaskRunning = false;
+    currentAbortController = null;
 
     // If shutdown was requested while task was running, exit now
     if (shutdownRequested) {
@@ -694,7 +675,7 @@ app.get("/system-prompt", async (_req: Request, res: Response) => {
 
 // Message endpoint
 app.post("/message", async (req: Request, res: Response) => {
-  const { message, config, timeout, waitForResponse } = req.body as MessageRequest;
+  const { message, config, waitForResponse } = req.body as MessageRequest;
 
   if (!message || typeof message !== "string") {
     res.status(400).json({ error: "Message is required" });
@@ -714,6 +695,14 @@ app.post("/message", async (req: Request, res: Response) => {
     }
   }
 
+  // Log OAuth token usage for CLI agents
+  if (CELL_MODE === "cli") {
+    const authMethod = process.env.CLAUDE_CODE_OAUTH_TOKEN
+      ? "oauth_token"
+      : "api_key";
+    addLog("cli_auth_method", { method: authMethod });
+  }
+
   // Reject if a task is already running
   if (isTaskRunning) {
     res.status(409).json({
@@ -723,22 +712,14 @@ app.post("/message", async (req: Request, res: Response) => {
     return;
   }
 
-  // Use provided timeout (ms), or config timeout (seconds → ms), or default
-  const taskTimeout = typeof timeout === "number" && timeout > 0
-    ? timeout
-    : config?.timeout && config.timeout > 0
-      ? config.timeout * 1000
-      : DEFAULT_TASK_TIMEOUT;
-
   if (waitForResponse) {
     // Synchronous mode: await the agent and return the result
     try {
-      const result = await runAgent(message, config, taskTimeout);
+      const result = await runAgent(message, config);
       res.json({
         status: "completed",
         response: result,
         sessionPersistence: true,
-        timeout: taskTimeout,
       });
     } catch (error) {
       addLog("agent_fatal_error", {
@@ -755,11 +736,10 @@ app.post("/message", async (req: Request, res: Response) => {
       status: "started",
       message: "Agent task started. Monitor /logs for progress.",
       sessionPersistence: true,
-      timeout: taskTimeout,
     });
 
     // Run agent (don't await - let it run in background)
-    runAgent(message, config, taskTimeout).catch((error) => {
+    runAgent(message, config).catch((error) => {
       addLog("agent_fatal_error", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -816,6 +796,17 @@ app.post("/peers", (req: Request, res: Response) => {
   updatePeers(peers);
   addLog("peers_updated", { count: peers.length });
   res.json({ success: true, count: peers.length });
+});
+
+// POST /cancel - Cancel the currently running task
+app.post("/cancel", (_req: Request, res: Response) => {
+  if (currentAbortController && isTaskRunning) {
+    addLog("task_cancelled", { message: "Task cancelled by user" });
+    currentAbortController.abort();
+    res.json({ success: true });
+  } else {
+    res.status(404).json({ error: "No task running" });
+  }
 });
 
 // --- Filesystem API ---

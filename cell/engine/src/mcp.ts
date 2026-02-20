@@ -18,6 +18,8 @@ let peers: PeerAgent[] = [];
 
 export function updatePeers(newPeers: PeerAgent[]): void {
   peers = newPeers;
+  // Write to shared file so CLI's stdio MCP process can pick up changes
+  writeFile("/tmp/nexus-peers.json", JSON.stringify(newPeers), "utf-8").catch(() => {});
 }
 
 export function getPeers(): PeerAgent[] {

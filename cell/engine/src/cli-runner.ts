@@ -56,6 +56,10 @@ async function writeMcpConfig(): Promise<string | null> {
 
   await mkdir("/tmp", { recursive: true });
   await writeFile(configPath, JSON.stringify(config, null, 2), "utf-8");
+
+  // Write initial peers file so the MCP stdio process can read it immediately
+  await writeFile("/tmp/nexus-peers.json", JSON.stringify(peers), "utf-8");
+
   return configPath;
 }
 

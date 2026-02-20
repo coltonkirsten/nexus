@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Circle, Trash2, Play, Square, Clock } from 'lucide-react';
+import { Send, Circle, Trash2, Play, Square, Clock, XCircle } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Agent } from '../types/agent';
-import { sendMessage, clearSession, startAgent, stopAgent } from '../api/agents';
+import { sendMessage, clearSession, startAgent, stopAgent, cancelAgentTask } from '../api/agents';
 import { useAgentLogs } from '../hooks/useAgentLogs';
 import { useConversationStream } from '../hooks/useConversationStream';
 import { UserMessage } from './messages/UserMessage';
@@ -109,6 +109,11 @@ export function ConversationTab({ agent }: ConversationTabProps) {
       }
       setMessage('');
     },
+  });
+
+  // Cancel running task
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelAgentTask(agent.id),
   });
 
   // Clear session
@@ -260,10 +265,15 @@ export function ConversationTab({ agent }: ConversationTabProps) {
                 rows={2}
               />
               {isAgentRunning && (
-                <div className="absolute right-3 top-3 flex items-center gap-1">
-                  <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse" />
-                  <span className="text-[10px] text-indigo-400">Processing</span>
-                </div>
+                <button
+                  onClick={() => cancelMutation.mutate()}
+                  disabled={cancelMutation.isPending}
+                  className="absolute right-3 top-3 flex items-center gap-1 px-2 py-1 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-all duration-200 disabled:opacity-50"
+                  title="Cancel running task"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-medium">Cancel</span>
+                </button>
               )}
             </div>
             <button

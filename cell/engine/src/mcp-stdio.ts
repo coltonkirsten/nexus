@@ -8,6 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { readFileSync } from "fs";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { join, normalize } from "path";
 import { withLock } from "./mutex.js";
@@ -22,15 +23,25 @@ interface PeerAgent {
   status: string;
 }
 
-// Load peers from env (serialized as JSON by engine before CLI invocation)
-let peers: PeerAgent[] = [];
-try {
-  const peersEnv = process.env.NEXUS_PEERS;
-  if (peersEnv) {
-    peers = JSON.parse(peersEnv);
+const PEERS_FILE = "/tmp/nexus-peers.json";
+
+// Load peers dynamically from shared file (written by engine), falling back to env
+function loadPeers(): PeerAgent[] {
+  try {
+    const data = readFileSync(PEERS_FILE, "utf-8");
+    return JSON.parse(data) as PeerAgent[];
+  } catch {
+    // Fall back to env (initial snapshot from engine)
+    try {
+      const peersEnv = process.env.NEXUS_PEERS;
+      if (peersEnv) {
+        return JSON.parse(peersEnv) as PeerAgent[];
+      }
+    } catch {
+      // Ignore parse errors
+    }
+    return [];
   }
-} catch {
-  // Ignore parse errors
 }
 
 function validateSharedPath(path: string): string {
@@ -55,6 +66,7 @@ server.tool(
     message: z.string().describe("The message content to send"),
   },
   async (args) => {
+    const peers = loadPeers();
     const target = peers.find(
       (p) => p.id === args.to || p.name.toLowerCase() === args.to.toLowerCase()
     );
@@ -123,6 +135,7 @@ server.tool(
   "List all other NEXUS agents you can communicate with, showing their name and current status.",
   {},
   async () => {
+    const peers = loadPeers();
     const otherPeers = peers.filter((p) => p.id !== AGENT_ID);
     if (otherPeers.length === 0) {
       return {
