@@ -223,9 +223,11 @@ export async function cloneDockerVolume(source: string, target: string): Promise
   await docker.createVolume({ Name: target });
 
   // Spin up a throwaway container to copy data
+  // Override Entrypoint so the cell engine doesn't start
   const container = await docker.createContainer({
     Image: 'nexus-cell:latest',
-    Cmd: ['sh', '-c', 'cp -a /source/. /target/'],
+    Entrypoint: ['sh', '-c'],
+    Cmd: ['cp -a /source/. /target/'],
     HostConfig: {
       Mounts: [
         { Target: '/source', Source: source, Type: 'volume', ReadOnly: true },
@@ -247,9 +249,11 @@ export async function readFromVolume(
   filePath: string
 ): Promise<NodeJS.ReadableStream> {
   // Spin up a temp container to read from detached volume
+  // Override Entrypoint so the cell engine doesn't start
   const container = await docker.createContainer({
     Image: 'nexus-cell:latest',
-    Cmd: ['sleep', '30'],
+    Entrypoint: ['sleep'],
+    Cmd: ['30'],
     HostConfig: {
       Mounts: [
         { Target: '/vol', Source: dockerVolumeName, Type: 'volume', ReadOnly: true },
