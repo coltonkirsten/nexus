@@ -1228,6 +1228,11 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
       const reader = engineLogsResult.stream.getReader();
       const decoder = new TextDecoder();
 
+      // Heartbeat to keep the Tailscale/proxy connection alive when no logs are flowing
+      const heartbeat = setInterval(() => {
+        res.write(': heartbeat\n\n');
+      }, 25000);
+
       const pump = async () => {
         try {
           while (true) {
@@ -1238,6 +1243,9 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
           }
         } catch {
           // Stream ended
+        } finally {
+          clearInterval(heartbeat);
+          res.end();
         }
       };
 
@@ -1245,6 +1253,7 @@ router.get('/:id/logs', async (req: Request, res: Response) => {
 
       req.on('close', () => {
         reader.cancel();
+        clearInterval(heartbeat);
       });
     } else {
       // Fall back to Docker container logs

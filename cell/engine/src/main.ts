@@ -613,9 +613,15 @@ app.get("/logs", (req: Request, res: Response) => {
   // Add client to SSE set
   sseClients.add(res);
 
+  // Heartbeat to keep the connection alive through NAT/proxies when no logs are flowing
+  const heartbeat = setInterval(() => {
+    res.write(": heartbeat\n\n");
+  }, 25000);
+
   // Remove client on disconnect
   req.on("close", () => {
     sseClients.delete(res);
+    clearInterval(heartbeat);
   });
 });
 
