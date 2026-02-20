@@ -13,10 +13,13 @@ import { WebSocketServer } from 'ws';
 import agentsRouter from './routes/agents.js';
 import volumesRouter from './routes/volumes.js';
 import teamsRouter from './routes/teams.js';
+import cellTypesRouter from './routes/cellTypes.js';
+import mailboxRouter from './routes/mailbox.js';
 import { listAgents, updateAgentHealthStatus, recoverAllStuckMessages } from './services/agents.js';
 import { restartConsumersForRunningAgents } from './services/queueConsumer.js';
 import { handleTerminalConnection } from './services/terminal.js';
 import { initScheduler } from './services/cronScheduler.js';
+import { migrateFromEnv } from './services/credentials.js';
 import type { HealthStatus } from './types.js';
 
 const app = express();
@@ -39,6 +42,10 @@ app.get('/health', (_req, res) => {
 app.use('/api/agents', agentsRouter);
 app.use('/api/volumes', volumesRouter);
 app.use('/api/teams', teamsRouter);
+app.use('/api/teams', mailboxRouter);
+app.use('/api/cell-types', cellTypesRouter);
+// Credential routes are mounted under cell-types router (/api/cell-types/credentials/...)
+
 
 // Error handling middleware
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -135,6 +142,10 @@ function startHealthCheckLoop(): void {
 // Startup initialization
 async function initialize(): Promise<void> {
   try {
+    // Migrate credentials from env to credential store (backward compat)
+    console.log('[Startup] Checking credential migration...');
+    await migrateFromEnv();
+
     // Recover any messages stuck in "processing" state from previous run
     console.log('[Startup] Checking for stuck messages to recover...');
     await recoverAllStuckMessages();

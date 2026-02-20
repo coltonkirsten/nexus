@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, NavLink } from 'react-router-dom';
-import { Plus, Cpu, Users, Trash2 } from 'lucide-react';
+import { Plus, Cpu, Users, Trash2, Mail } from 'lucide-react';
 import type { Team } from '../types/agent';
 import { listTeams, deleteTeam, getTeamMembers } from '../api/teams';
+import { getAllUnreadCounts } from '../api/mailbox';
 import { CreateTeamModal } from './CreateTeamModal';
 import { ConfirmModal } from './ConfirmModal';
 
-function TeamCard({ team }: { team: Team }) {
+function TeamCard({ team, unreadCount = 0 }: { team: Team; unreadCount?: number }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -41,9 +42,17 @@ function TeamCard({ team }: { team: Team }) {
           <Users className="w-4 h-4 text-indigo-400 shrink-0" />
           <h3 className="text-sm font-semibold text-[#e0e0e8] truncate">{team.name}</h3>
         </div>
-        <span className="text-[10px] text-indigo-400 bg-indigo-500/10 rounded-full px-2.5 py-0.5 shrink-0 ml-2">
-          {members.length} member{members.length !== 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          {unreadCount > 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-500/10 rounded-full px-2 py-0.5">
+              <Mail className="w-3 h-3" />
+              {unreadCount}
+            </span>
+          )}
+          <span className="text-[10px] text-indigo-400 bg-indigo-500/10 rounded-full px-2.5 py-0.5">
+            {members.length} member{members.length !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
       {/* Meta */}
@@ -91,6 +100,12 @@ export function TeamsPage() {
     queryKey: ['teams'],
     queryFn: listTeams,
     refetchInterval: 5000,
+  });
+
+  const { data: unreadCounts = {} } = useQuery<Record<string, number>>({
+    queryKey: ['mailbox-unread-counts'],
+    queryFn: getAllUnreadCounts,
+    refetchInterval: 10000,
   });
 
   return (
@@ -152,6 +167,18 @@ export function TeamsPage() {
             >
               Volumes
             </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `pb-3 text-sm transition-all duration-200 border-b-2 ${
+                  isActive
+                    ? 'text-indigo-400 border-indigo-400'
+                    : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
+                }`
+              }
+            >
+              Settings
+            </NavLink>
           </nav>
         </div>
       </header>
@@ -190,7 +217,7 @@ export function TeamsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {teams.map((team) => (
-              <TeamCard key={team.id} team={team} />
+              <TeamCard key={team.id} team={team} unreadCount={unreadCounts[team.id] || 0} />
             ))}
           </div>
         )}

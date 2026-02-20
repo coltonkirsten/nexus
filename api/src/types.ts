@@ -31,6 +31,7 @@ export interface Agent {
   id: string;
   name: string;
   template?: string;
+  cellType?: string;
   createdAt: string;
   lastActivity?: string;
   containerId?: string;
@@ -47,6 +48,7 @@ export interface Agent {
 export interface AgentConfig {
   name: string;
   template?: string;
+  cellType?: string;
 }
 
 export interface Message {
@@ -74,10 +76,12 @@ export interface ContainerConfig {
   agentId: string;
   agentName?: string;
   port: number;
-  apiKey?: string;
+  cellType?: string;
+  credentialEnv?: string[];  // pre-resolved env var array ["KEY=value", ...]
   ledgerVolume?: string;     // Docker volume name for /ledger mount
   workspaceVolume?: string;  // Docker volume name for /workspace mount
   sharedVolume?: string;     // Docker volume name for /shared mount
+  teamId?: string;           // Team ID for mailbox access
 }
 
 export interface QueueStats {
@@ -110,6 +114,8 @@ export type TeamEventType =
   | 'agent_stopped'
   | 'agent_deleted'
   | 'message_sent'
+  | 'mail_sent'
+  | 'mail_received'
   | 'processing_started'
   | 'processing_completed'
   | 'processing_failed';
@@ -178,4 +184,23 @@ export interface CronRunRecord {
 
 export interface CronJobState {
   jobs: CronJob[];
+}
+
+// --- Human Mailbox ---
+
+export type MailDirection = 'agent_to_human' | 'human_to_agent';
+
+export interface MailMessage {
+  id: string;
+  teamId: string;
+  direction: MailDirection;
+  agentId: string;
+  agentName: string;
+  subject: string;
+  body: string;
+  category?: 'question' | 'approval' | 'status' | 'deliverable' | 'general';
+  read: boolean;
+  timestamp: string;
+  replyToId?: string;
+  metadata?: Record<string, unknown>;
 }

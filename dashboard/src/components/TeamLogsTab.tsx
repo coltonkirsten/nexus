@@ -7,6 +7,8 @@ import {
   Square,
   Trash2,
   MessageSquare,
+  Mail,
+  MailOpen,
   Loader2,
   CheckCircle,
   XCircle,
@@ -67,6 +69,28 @@ const eventConfig: Record<TeamEventType, {
       return `${e.agentName} → ${target}: ${preview.slice(0, 80)}${preview.length > 80 ? '...' : ''}`;
     },
   },
+  mail_sent: {
+    icon: Mail,
+    color: 'text-blue-400',
+    bgColor: 'bg-blue-500/10',
+    label: (e) => {
+      const subject = (e.data?.subject as string) || '';
+      const direction = e.data?.direction as string;
+      if (direction === 'human_to_agent') {
+        return `Human → ${e.agentName}: ${subject}`;
+      }
+      return `Mail sent to ${e.agentName}: ${subject}`;
+    },
+  },
+  mail_received: {
+    icon: MailOpen,
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-500/10',
+    label: (e) => {
+      const subject = (e.data?.subject as string) || '';
+      return `${e.agentName} sent mail to humans: ${subject}`;
+    },
+  },
   processing_started: {
     icon: Loader2,
     color: 'text-yellow-400',
@@ -107,7 +131,7 @@ function EventEntry({ event }: { event: TeamEvent }) {
     });
   };
 
-  const hasDetail = event.type === 'message_sent' || event.type === 'processing_failed';
+  const hasDetail = event.type === 'message_sent' || event.type === 'processing_failed' || event.type === 'mail_sent' || event.type === 'mail_received';
 
   return (
     <div className="group">
@@ -148,6 +172,14 @@ function EventEntry({ event }: { event: TeamEvent }) {
               <p className="text-[10px] text-[#4a4a5e] mb-1">Full message:</p>
               <p className="text-sm text-[#e0e0e8] whitespace-pre-wrap font-mono">
                 {(event.data?.messagePreview as string) || 'No content'}
+              </p>
+            </div>
+          )}
+          {(event.type === 'mail_sent' || event.type === 'mail_received') && (
+            <div>
+              <p className="text-[10px] text-[#4a4a5e] mb-1">Subject:</p>
+              <p className="text-sm text-[#e0e0e8]">
+                {(event.data?.subject as string) || 'No subject'}
               </p>
             </div>
           )}

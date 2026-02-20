@@ -25,6 +25,7 @@ export interface Agent {
   id: string;
   name: string;
   template?: string;
+  cellType?: string;
   port?: number;
   containerId?: string;
   status: AgentStatus;
@@ -41,7 +42,28 @@ export interface Agent {
 export interface CreateAgentRequest {
   name: string;
   template?: string;
+  cellType?: string;
 }
+
+// --- Cell Types ---
+
+export interface CredentialField {
+  key: string;
+  label: string;
+  required: boolean;
+  sensitive?: boolean;
+  placeholder?: string;
+}
+
+export interface CellTypeDefinition {
+  id: string;
+  name: string;
+  description: string;
+  credentials: CredentialField[];
+  engineMode: string;
+}
+
+export type CredentialStore = Record<string, Record<string, string>>;
 
 export interface SendMessageRequest {
   message: string;
@@ -70,6 +92,8 @@ export type TeamEventType =
   | 'agent_stopped'
   | 'agent_deleted'
   | 'message_sent'
+  | 'mail_sent'
+  | 'mail_received'
   | 'processing_started'
   | 'processing_completed'
   | 'processing_failed';
@@ -174,4 +198,23 @@ export interface CronRunRecord {
   status: 'enqueued' | 'skipped_agent_stopped' | 'skipped_disabled' | 'error';
   messageId?: string;
   error?: string;
+}
+
+// --- Human Mailbox ---
+
+export type MailDirection = 'agent_to_human' | 'human_to_agent';
+
+export interface MailMessage {
+  id: string;
+  teamId: string;
+  direction: MailDirection;
+  agentId: string;
+  agentName: string;
+  subject: string;
+  body: string;
+  category?: 'question' | 'approval' | 'status' | 'deliverable' | 'general';
+  read: boolean;
+  timestamp: string;
+  replyToId?: string;
+  metadata?: Record<string, unknown>;
 }

@@ -214,12 +214,11 @@ router.post('/', async (req: Request, res: Response) => {
       });
 
       // Create Docker container with volume mounts
-      const apiKey = process.env.ANTHROPIC_API_KEY;
       containerId = await createAgentContainer({
         agentId: agent.id,
         agentName: config.name,
         port: agent.port!,
-        apiKey,
+        cellType: agent.cellType,
         ledgerVolume: ledgerVol.dockerVolume,
         workspaceVolume: workspaceVol.dockerVolume,
       });
@@ -408,7 +407,27 @@ router.post('/:id/start', async (req: Request, res: Response) => {
     }
 
     await updateAgent(id, { status: 'starting' });
-    await startContainer(id);
+
+    // Try to start existing container; if missing, recreate it
+    try {
+      await startContainer(id);
+    } catch {
+      // Container missing — recreate from scratch
+      const { ledger, workspace } = await getAgentVolumes(id);
+      const team = agent.teamId ? await getTeam(agent.teamId) : null;
+      const containerId = await recreateContainer({
+        agentId: id,
+        agentName: agent.name,
+        port: agent.port!,
+        cellType: agent.cellType,
+        ledgerVolume: ledger?.dockerVolume,
+        workspaceVolume: workspace?.dockerVolume,
+        sharedVolume: team?.sharedVolume,
+        teamId: agent.teamId,
+      });
+      await updateAgent(id, { containerId });
+      await startContainer(id);
+    }
 
     // Wait for engine to become healthy before initializing
     const healthy = await waitForHealthy(id, agent.port!);
@@ -562,12 +581,11 @@ router.post('/:id/attach', async (req: Request, res: Response) => {
       if (team) sharedVolume = team.sharedVolume;
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
     const containerId = await recreateContainer({
       agentId: id,
       agentName: agent.name,
       port: agent.port!,
-      apiKey,
+      cellType: agent.cellType,
       ledgerVolume: ledgerDockerVol,
       workspaceVolume: workspaceDockerVol,
       sharedVolume,
@@ -638,12 +656,11 @@ router.post('/:id/detach', async (req: Request, res: Response) => {
       if (team) sharedVolume = team.sharedVolume;
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
     const containerId = await recreateContainer({
       agentId: id,
       agentName: agent.name,
       port: agent.port!,
-      apiKey,
+      cellType: agent.cellType,
       ledgerVolume: ledgerDockerVol,
       workspaceVolume: workspaceDockerVol,
       sharedVolume,

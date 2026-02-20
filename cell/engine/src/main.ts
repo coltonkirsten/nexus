@@ -4,6 +4,10 @@ import { query } from "@anthropic-ai/claude-code";
 import { readFile, readdir, stat, writeFile, unlink, appendFile, mkdir, rm } from "fs/promises";
 import { join, normalize, extname } from "path";
 import { createNexusMcpServer, updatePeers, getPeers, type PeerAgent } from "./mcp.js";
+import { runCliAgent } from "./cli-runner.js";
+
+// Cell mode: "sdk" (default) or "cli"
+const CELL_MODE = process.env.CELL_MODE || "sdk";
 
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
@@ -244,6 +248,16 @@ async function assembleSystemPrompt(): Promise<{ systemPrompt: string; appendPro
     );
   }
 
+  // Add human mailbox section if agent is in a team
+  if (process.env.TEAM_ID) {
+    appendParts.push(
+      "# Human Mailbox\n\n" +
+      "You have access to a team mailbox for communicating with human operators. " +
+      "Use the `send_human_mail` tool to send messages that require human attention — questions, approval requests, status updates, or deliverables. " +
+      "Messages from humans will be delivered to you as regular messages prefixed with `[Human Mail]`."
+    );
+  }
+
   return {
     systemPrompt,
     appendPrompt: appendParts.join("\n\n---\n\n"),
@@ -306,98 +320,172 @@ async function runAgent(
       ? config.allowedTools.filter((t): t is ToolName => defaultTools.includes(t as ToolName))
       : defaultTools;
 
-    // Create the NEXUS MCP server for inter-agent communication
-    const nexusMcp = createNexusMcpServer();
-
-    // Build query options — split system prompt for optimal cache behavior:
-    // customSystemPrompt (identity) is stable and stays cached across invocations
-    // appendSystemPrompt (memory + skills) is volatile and re-cached independently
-    const queryOptions: Record<string, unknown> = {
-      customSystemPrompt: systemPrompt,
-      ...(appendPrompt && { appendSystemPrompt: appendPrompt }),
-      allowedTools,
-      permissionMode: "bypassPermissions",
-      model: config.model || "claude-haiku-4-5-20251001",
-      maxTurns: config.maxTurns || 50,
-      cwd: "/workspace",
-      abortSignal: abortController.signal,
-      mcpServers: { "nexus-intercom": nexusMcp },
-    };
-
-    // Add resume option if we have a session to resume
-    if (resumeSessionId) {
-      queryOptions.resume = resumeSessionId;
-    }
-
     // Track tokens for this invocation
     let invocationInputTokens = 0;
     let invocationOutputTokens = 0;
     let resultText = "";
 
-    // Create the agent task promise
-    const agentTask = async () => {
-      for await (const agentMessage of query({
-        prompt: message,
-        options: queryOptions,
-      })) {
-        addLog("agent_message", agentMessage);
+    if (CELL_MODE === "cli") {
+      // --- CLI mode: spawn the claude binary ---
+      const cliOnLogEntry = (type: string, data: unknown) => {
+        addLog(type, data);
 
-        // Extract token usage from result messages
+        // Extract session_id from system init messages (same as SDK path)
         if (
-          agentMessage &&
-          typeof agentMessage === "object" &&
-          "type" in agentMessage &&
-          agentMessage.type === "result" &&
-          "usage" in agentMessage &&
-          agentMessage.usage &&
-          typeof agentMessage.usage === "object"
+          data &&
+          typeof data === "object" &&
+          "type" in data &&
+          (data as Record<string, unknown>).type === "system" &&
+          "subtype" in data &&
+          (data as Record<string, unknown>).subtype === "init" &&
+          "session_id" in data &&
+          typeof (data as Record<string, unknown>).session_id === "string"
         ) {
-          const usage = agentMessage.usage as { input_tokens?: number; output_tokens?: number };
-          if (typeof usage.input_tokens === "number") {
-            invocationInputTokens += usage.input_tokens;
-            tokenUsage.inputTokens += usage.input_tokens;
-          }
-          if (typeof usage.output_tokens === "number") {
-            invocationOutputTokens += usage.output_tokens;
-            tokenUsage.outputTokens += usage.output_tokens;
-          }
-          tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
-
-          // Extract result text
-          if ("result" in agentMessage && typeof agentMessage.result === "string") {
-            resultText = agentMessage.result;
-          }
-        }
-
-        // Extract session_id from system init messages
-        if (
-          agentMessage &&
-          typeof agentMessage === "object" &&
-          "type" in agentMessage &&
-          agentMessage.type === "system" &&
-          "subtype" in agentMessage &&
-          agentMessage.subtype === "init" &&
-          "session_id" in agentMessage &&
-          typeof agentMessage.session_id === "string"
-        ) {
-          const newSessionId = agentMessage.session_id;
+          const newSessionId = (data as Record<string, unknown>).session_id as string;
           if (newSessionId !== currentSessionId) {
             currentSessionId = newSessionId;
-            await saveSessionId(newSessionId);
+            saveSessionId(newSessionId).catch(() => {});
           }
         }
-      }
-    };
+      };
 
-    // Race between task completion and timeout
-    const timeout = createTimeoutPromise(taskTimeout, abortController);
-    try {
-      await Promise.race([
-        agentTask(),
-        timeout.promise
-      ]);
-    } finally {
-      timeout.cleanup();
+      let cliResult;
+      try {
+        cliResult = await runCliAgent({
+          message,
+          systemPrompt,
+          appendPrompt,
+          model: config.model || "claude-haiku-4-5-20251001",
+          maxTurns: config.maxTurns || 50,
+          allowedTools: allowedTools as string[],
+          sessionId: resumeSessionId,
+          abortSignal: abortController.signal,
+          onLogEntry: cliOnLogEntry,
+        });
+      } catch (cliErr) {
+        // If session is stale, clear it and retry without resume
+        const errMsg = cliErr instanceof Error ? cliErr.message : String(cliErr);
+        if (resumeSessionId && errMsg.includes("No conversation found")) {
+          addLog("session_stale", { sessionId: resumeSessionId, message: "Stale session detected, retrying without resume" });
+          await clearSessionFile();
+          cliResult = await runCliAgent({
+            message,
+            systemPrompt,
+            appendPrompt,
+            model: config.model || "claude-haiku-4-5-20251001",
+            maxTurns: config.maxTurns || 50,
+            allowedTools: allowedTools as string[],
+            sessionId: null,
+            abortSignal: abortController.signal,
+            onLogEntry: cliOnLogEntry,
+          });
+        } else {
+          throw cliErr;
+        }
+      }
+
+      resultText = cliResult.resultText;
+      invocationInputTokens = cliResult.inputTokens;
+      invocationOutputTokens = cliResult.outputTokens;
+      tokenUsage.inputTokens += cliResult.inputTokens;
+      tokenUsage.outputTokens += cliResult.outputTokens;
+      tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
+
+      if (cliResult.sessionId && cliResult.sessionId !== currentSessionId) {
+        currentSessionId = cliResult.sessionId;
+        await saveSessionId(cliResult.sessionId);
+      }
+    } else {
+      // --- SDK mode: use the Anthropic Agent SDK ---
+
+      // Create the NEXUS MCP server for inter-agent communication
+      const nexusMcp = createNexusMcpServer();
+
+      // Build query options — split system prompt for optimal cache behavior:
+      // customSystemPrompt (identity) is stable and stays cached across invocations
+      // appendSystemPrompt (memory + skills) is volatile and re-cached independently
+      const queryOptions: Record<string, unknown> = {
+        customSystemPrompt: systemPrompt,
+        ...(appendPrompt && { appendSystemPrompt: appendPrompt }),
+        allowedTools,
+        permissionMode: "bypassPermissions",
+        model: config.model || "claude-haiku-4-5-20251001",
+        maxTurns: config.maxTurns || 50,
+        cwd: "/workspace",
+        abortSignal: abortController.signal,
+        mcpServers: { "nexus-intercom": nexusMcp },
+      };
+
+      // Add resume option if we have a session to resume
+      if (resumeSessionId) {
+        queryOptions.resume = resumeSessionId;
+      }
+
+      // Create the agent task promise
+      const agentTask = async () => {
+        for await (const agentMessage of query({
+          prompt: message,
+          options: queryOptions,
+        })) {
+          addLog("agent_message", agentMessage);
+
+          // Extract token usage from result messages
+          if (
+            agentMessage &&
+            typeof agentMessage === "object" &&
+            "type" in agentMessage &&
+            agentMessage.type === "result" &&
+            "usage" in agentMessage &&
+            agentMessage.usage &&
+            typeof agentMessage.usage === "object"
+          ) {
+            const usage = agentMessage.usage as { input_tokens?: number; output_tokens?: number };
+            if (typeof usage.input_tokens === "number") {
+              invocationInputTokens += usage.input_tokens;
+              tokenUsage.inputTokens += usage.input_tokens;
+            }
+            if (typeof usage.output_tokens === "number") {
+              invocationOutputTokens += usage.output_tokens;
+              tokenUsage.outputTokens += usage.output_tokens;
+            }
+            tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
+
+            // Extract result text
+            if ("result" in agentMessage && typeof agentMessage.result === "string") {
+              resultText = agentMessage.result;
+            }
+          }
+
+          // Extract session_id from system init messages
+          if (
+            agentMessage &&
+            typeof agentMessage === "object" &&
+            "type" in agentMessage &&
+            agentMessage.type === "system" &&
+            "subtype" in agentMessage &&
+            agentMessage.subtype === "init" &&
+            "session_id" in agentMessage &&
+            typeof agentMessage.session_id === "string"
+          ) {
+            const newSessionId = agentMessage.session_id;
+            if (newSessionId !== currentSessionId) {
+              currentSessionId = newSessionId;
+              await saveSessionId(newSessionId);
+            }
+          }
+        }
+      };
+
+      // Race between task completion and timeout
+      const timeout = createTimeoutPromise(taskTimeout, abortController);
+      try {
+        await Promise.race([
+          agentTask(),
+          timeout.promise
+        ]);
+      } finally {
+        timeout.cleanup();
+      }
     }
 
     // Update invocation count
@@ -613,10 +701,17 @@ app.post("/message", async (req: Request, res: Response) => {
     return;
   }
 
-  // Check for API key
-  if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
-    return;
+  // Check for required credentials based on cell mode
+  if (CELL_MODE === "cli") {
+    if (!process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
+      res.status(500).json({ error: "CLI mode requires CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY" });
+      return;
+    }
+  } else {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
+      return;
+    }
   }
 
   // Reject if a task is already running

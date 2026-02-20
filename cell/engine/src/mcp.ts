@@ -456,10 +456,88 @@ const manageCronTool = tool(
   }
 );
 
+const TEAM_ID = process.env.TEAM_ID || "";
+
+const sendHumanMailTool = tool(
+  "send_human_mail",
+  "Send a message to the human operators via the team mailbox. Use this to ask questions, request approvals, provide status updates, or deliver results to humans.",
+  {
+    subject: z.string().describe("A short subject line for the message"),
+    body: z.string().describe("The full message body"),
+    category: z
+      .enum(["question", "approval", "status", "deliverable", "general"])
+      .optional()
+      .describe("Message category: question, approval, status, deliverable, or general"),
+    replyToId: z.string().optional().describe("ID of a previous mail message to reply to"),
+  },
+  async (args) => {
+    if (!TEAM_ID) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Error: This agent is not part of a team. The send_human_mail tool requires TEAM_ID to be set.",
+          },
+        ],
+      };
+    }
+
+    try {
+      const myName = peers.find((p) => p.id === AGENT_ID)?.name || AGENT_ID;
+
+      const response = await fetch(
+        `${NEXUS_API_URL}/api/teams/${TEAM_ID}/mailbox/from-agent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agentId: AGENT_ID,
+            agentName: myName,
+            subject: args.subject,
+            body: args.body,
+            category: args.category,
+            replyToId: args.replyToId,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const body = await response.text();
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error sending mail to humans: ${response.status} ${body}`,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Mail sent to human operators successfully. Subject: "${args.subject}"`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error sending mail: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
 export function createNexusMcpServer() {
   return createSdkMcpServer({
     name: "nexus-intercom",
     version: "1.0.0",
-    tools: [sendMessageTool, listAgentsTool, sharedWriteTool, sharedReadTool, manageCronTool],
+    tools: [sendMessageTool, listAgentsTool, sharedWriteTool, sharedReadTool, manageCronTool, sendHumanMailTool],
   });
 }

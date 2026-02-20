@@ -1,11 +1,13 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Users, HardDrive, Activity } from 'lucide-react';
+import { ArrowLeft, Users, HardDrive, Activity, Mail } from 'lucide-react';
 import type { Team } from '../types/agent';
 import { getTeam, getTeamMembers } from '../api/teams';
+import { getUnreadCount } from '../api/mailbox';
 import { TeamAgentsTab } from './TeamAgentsTab';
 import { TeamSharedDriveTab } from './TeamSharedDriveTab';
 import { TeamLogsTab } from './TeamLogsTab';
+import { TeamMailboxTab } from './TeamMailboxTab';
 
 export function TeamDetailPage() {
   const { teamId, tab } = useParams<{ teamId: string; tab?: string }>();
@@ -22,6 +24,13 @@ export function TeamDetailPage() {
   const { data: members = [] } = useQuery({
     queryKey: ['team-members', teamId],
     queryFn: () => getTeamMembers(teamId!),
+    refetchInterval: 5000,
+    enabled: !!teamId,
+  });
+
+  const { data: mailboxUnread = 0 } = useQuery({
+    queryKey: ['mailbox-unread', teamId],
+    queryFn: () => getUnreadCount(teamId!),
     refetchInterval: 5000,
     enabled: !!teamId,
   });
@@ -55,9 +64,10 @@ export function TeamDetailPage() {
   }
 
   const tabs = [
-    { key: 'agents', label: 'Agents', icon: Users },
-    { key: 'shared', label: 'Shared Drive', icon: HardDrive },
-    { key: 'logs', label: 'Logs', icon: Activity },
+    { key: 'agents', label: 'Agents', icon: Users, badge: 0 },
+    { key: 'mailbox', label: 'Mailbox', icon: Mail, badge: mailboxUnread },
+    { key: 'shared', label: 'Shared Drive', icon: HardDrive, badge: 0 },
+    { key: 'logs', label: 'Logs', icon: Activity, badge: 0 },
   ];
 
   return (
@@ -83,7 +93,7 @@ export function TeamDetailPage() {
         {/* Tabs */}
         <div className="px-6">
           <nav className="flex gap-6">
-            {tabs.map(({ key, label, icon: Icon }) => (
+            {tabs.map(({ key, label, icon: Icon, badge }) => (
               <button
                 key={key}
                 onClick={() => navigate(`/team/${teamId}/${key}`)}
@@ -95,6 +105,11 @@ export function TeamDetailPage() {
               >
                 <Icon className="w-4 h-4" />
                 {label}
+                {badge > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] bg-indigo-500 text-white rounded-full leading-none">
+                    {badge}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -104,6 +119,7 @@ export function TeamDetailPage() {
       {/* Tab content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'agents' && <TeamAgentsTab teamId={teamId!} />}
+        {activeTab === 'mailbox' && <TeamMailboxTab teamId={teamId!} />}
         {activeTab === 'shared' && <TeamSharedDriveTab teamId={teamId!} />}
         {activeTab === 'logs' && <TeamLogsTab teamId={teamId!} />}
       </div>

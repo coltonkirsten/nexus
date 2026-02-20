@@ -6,6 +6,7 @@ import type { Team, TeamState, TeamEvent, TeamEventType, TeamEventLog } from '..
 import { getAgent, updateAgent, listAgents } from './agents.js';
 import { recreateContainer, getContainerStatus, docker } from './docker.js';
 import { getAgentVolumes } from './volumes.js';
+import { deleteMailboxForTeam } from './mailbox.js';
 
 // Simple async mutex (same pattern as agents.ts / volumes.ts)
 let teamLock: Promise<void> = Promise.resolve();
@@ -144,6 +145,13 @@ export async function deleteTeam(id: string): Promise<boolean> {
       // Events file might not exist
     }
 
+    // Remove mailbox file
+    try {
+      await deleteMailboxForTeam(id);
+    } catch {
+      // Mailbox file might not exist
+    }
+
     state.teams.splice(index, 1);
     await saveTeamState(state);
     return true;
@@ -182,15 +190,15 @@ export async function addAgentToTeam(agentId: string, teamId: string): Promise<v
 
   // Recreate container with team shared volume
   const { ledger, workspace } = await getAgentVolumes(agentId);
-  const apiKey = process.env.ANTHROPIC_API_KEY;
   const containerId = await recreateContainer({
     agentId,
     agentName: agent.name,
     port: agent.port!,
-    apiKey,
+    cellType: agent.cellType,
     ledgerVolume: ledger?.dockerVolume,
     workspaceVolume: workspace?.dockerVolume,
     sharedVolume: team.sharedVolume,
+    teamId,
   });
   await updateAgent(agentId, { containerId });
 
@@ -223,12 +231,11 @@ export async function removeAgentFromTeam(agentId: string): Promise<void> {
 
   // Recreate container without shared volume
   const { ledger, workspace } = await getAgentVolumes(agentId);
-  const apiKey = process.env.ANTHROPIC_API_KEY;
   const containerId = await recreateContainer({
     agentId,
     agentName: agent.name,
     port: agent.port!,
-    apiKey,
+    cellType: agent.cellType,
     ledgerVolume: ledger?.dockerVolume,
     workspaceVolume: workspace?.dockerVolume,
   });

@@ -2,6 +2,8 @@ import Docker from 'dockerode';
 import { Readable } from 'stream';
 import tar from 'tar-stream';
 import type { ContainerConfig, AgentStatus } from '../types.js';
+import { getCellType } from './cellTypes.js';
+import { getCredentialEnvVars } from './credentials.js';
 
 const docker = new Docker();
 
@@ -49,6 +51,11 @@ export async function createAgentContainer(config: ContainerConfig): Promise<str
     labels['nexus.volume.shared'] = config.sharedVolume;
   }
 
+  // Resolve cell type and credentials
+  const cellTypeId = config.cellType || 'sdk';
+  const cellType = getCellType(cellTypeId);
+  const credentialEnvVars = config.credentialEnv || await getCredentialEnvVars(cellTypeId);
+
   const container = await docker.createContainer({
     Image: 'nexus-cell:latest',
     name: containerName,
@@ -57,7 +64,9 @@ export async function createAgentContainer(config: ContainerConfig): Promise<str
       ...(config.agentName ? [`AGENT_NAME=${config.agentName}`] : []),
       `ENGINE_PORT=${INTERNAL_PORT}`,
       `NEXUS_API_URL=http://host.docker.internal:${process.env.API_PORT || 3001}`,
-      ...(config.apiKey ? [`ANTHROPIC_API_KEY=${config.apiKey}`] : []),
+      `CELL_MODE=${cellType?.engineMode || 'sdk'}`,
+      ...(config.teamId ? [`TEAM_ID=${config.teamId}`] : []),
+      ...credentialEnvVars,
     ],
     ExposedPorts: {
       [`${INTERNAL_PORT}/tcp`]: {},
