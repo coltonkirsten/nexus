@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { AgentOverview } from './components/AgentOverview';
+import { OrchestratorPage } from './components/orchestrator/OrchestratorPage';
 import { AgentDetailPage } from './components/AgentDetailPage';
 import { VolumesPage } from './components/VolumesPage';
 import { TeamsPage } from './components/TeamsPage';
@@ -21,7 +21,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<AgentOverview />} />
+          <Route path="/" element={<OrchestratorPage />} />
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/volumes" element={<VolumesPage />} />
           <Route path="/agent/:agentId/:tab?" element={<AgentDetailPage />} />

@@ -13,7 +13,7 @@ export function SettingsPage() {
               to="/"
               className="text-xs text-[#7a7a8e] hover:text-[#e0e0e8] transition-colors"
             >
-              Agents
+              Orchestrator
             </NavLink>
             <NavLink
               to="/teams"

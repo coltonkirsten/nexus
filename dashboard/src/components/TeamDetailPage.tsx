@@ -52,11 +52,11 @@ export function TeamDetailPage() {
         <div className="text-center">
           <p className="text-[#7a7a8e] text-sm mb-4">Team not found</p>
           <button
-            onClick={() => navigate('/teams')}
+            onClick={() => navigate('/')}
             className="flex items-center gap-2 px-4 py-2 text-sm text-indigo-400 hover:text-indigo-300 border border-[#1e1e3a] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200 mx-auto"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to Teams
+            Back to Orchestrator
           </button>
         </div>
       </div>
@@ -76,9 +76,9 @@ export function TeamDetailPage() {
       <header className="border-b border-[#1e1e3a] shrink-0">
         <div className="flex items-center gap-4 px-6 py-3">
           <button
-            onClick={() => navigate('/teams')}
+            onClick={() => navigate('/')}
             className="p-2 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200"
-            title="Back to teams"
+            title="Back to orchestrator"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>

@@ -348,7 +348,7 @@ export function VolumesPage() {
                 }`
               }
             >
-              Agents
+              Orchestrator
             </NavLink>
             <NavLink
               to="/teams"

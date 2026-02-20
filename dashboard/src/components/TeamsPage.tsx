@@ -141,7 +141,7 @@ export function TeamsPage() {
                 }`
               }
             >
-              Agents
+              Orchestrator
             </NavLink>
             <NavLink
               to="/teams"
