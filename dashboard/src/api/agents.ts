@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo, CronJob, CronRunRecord, Schedule } from '../types/agent';
+import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo, CronJob, CronRunRecord, Schedule, CellTypeDefinition, CredentialStore } from '../types/agent';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const WS_BASE = API_BASE.replace(/^http/, 'ws');
@@ -258,4 +258,26 @@ export async function triggerCronJob(agentId: string, jobId: string): Promise<vo
 export async function getCronHistory(agentId: string): Promise<CronRunRecord[]> {
   const response = await api.get<{ history: CronRunRecord[] }>(`/api/agents/${agentId}/cron-history`);
   return response.data.history;
+}
+
+// Cell Types API
+
+export async function listCellTypes(): Promise<CellTypeDefinition[]> {
+  const response = await api.get<{ cellTypes: CellTypeDefinition[] }>('/api/cell-types');
+  return response.data.cellTypes;
+}
+
+// Credentials API
+
+export async function getCredentials(): Promise<CredentialStore> {
+  const response = await api.get<{ credentials: CredentialStore }>('/api/cell-types/credentials');
+  return response.data.credentials;
+}
+
+export async function setCredentials(cellType: string, values: Record<string, string>): Promise<void> {
+  await api.put(`/api/cell-types/credentials/${cellType}`, values);
+}
+
+export async function deleteCredentials(cellType: string): Promise<void> {
+  await api.delete(`/api/cell-types/credentials/${cellType}`);
 }

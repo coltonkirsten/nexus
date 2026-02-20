@@ -39,6 +39,9 @@ RUN mkdir -p /etc/apt/keyrings && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
+# Install claude CLI globally (used by CLI cell mode)
+RUN npm install -g @anthropic-ai/claude-code
+
 # Create non-root user "agent"
 RUN useradd -m -s /bin/bash agent
 

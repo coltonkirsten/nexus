@@ -374,6 +374,18 @@ export function VolumesPage() {
             >
               Volumes
             </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `pb-3 text-sm transition-all duration-200 border-b-2 ${
+                  isActive
+                    ? 'text-indigo-400 border-indigo-400'
+                    : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
+                }`
+              }
+            >
+              Settings
+            </NavLink>
           </nav>
         </div>
       </header>

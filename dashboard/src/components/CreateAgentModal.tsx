@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createAgent } from '../api/agents';
+import { X, AlertTriangle } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createAgent, listCellTypes, getCredentials } from '../api/agents';
 
 interface CreateAgentModalProps {
   isOpen: boolean;
@@ -18,7 +18,20 @@ const templates = [
 export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
   const [name, setName] = useState('');
   const [template, setTemplate] = useState('blank');
+  const [cellType, setCellType] = useState('sdk');
   const queryClient = useQueryClient();
+
+  const { data: cellTypes } = useQuery({
+    queryKey: ['cell-types'],
+    queryFn: listCellTypes,
+    enabled: isOpen,
+  });
+
+  const { data: credentials } = useQuery({
+    queryKey: ['credentials'],
+    queryFn: getCredentials,
+    enabled: isOpen,
+  });
 
   const createMutation = useMutation({
     mutationFn: createAgent,
@@ -26,6 +39,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       setName('');
       setTemplate('blank');
+      setCellType('sdk');
       onClose();
     },
   });
@@ -36,9 +50,19 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
       createMutation.mutate({
         name: name.trim(),
         template,
+        cellType,
       });
     }
   };
+
+  // Check if selected cell type has credentials configured
+  const selectedType = cellTypes?.find(ct => ct.id === cellType);
+  const hasCredentials = (() => {
+    if (!selectedType || !credentials) return false;
+    const creds = credentials[cellType];
+    if (!creds) return false;
+    return selectedType.credentials.some(f => creds[f.key] && creds[f.key].length > 0);
+  })();
 
   if (!isOpen) return null;
 
@@ -82,6 +106,38 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
               className="w-full px-4 py-2.5 bg-[#0f0f18] border border-[#1e1e3a] rounded-xl text-[#e0e0e8] placeholder-[#4a4a5e] text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-all duration-200"
               autoFocus
             />
+          </div>
+
+          {/* Cell Type selector */}
+          <div className="mb-4">
+            <label className="block text-xs text-[#7a7a8e] mb-1.5">
+              Cell Type
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {(cellTypes || []).map((ct) => (
+                <button
+                  key={ct.id}
+                  type="button"
+                  onClick={() => setCellType(ct.id)}
+                  className={`p-3 text-left rounded-xl border transition-all duration-200 ${
+                    cellType === ct.id
+                      ? 'border-indigo-500 bg-indigo-500/10'
+                      : 'border-[#1e1e3a] hover:border-[#2e2e4a] hover:bg-[#1a1a2e]'
+                  }`}
+                >
+                  <div className="text-sm font-medium text-[#e0e0e8]">{ct.name}</div>
+                  <div className="text-[10px] text-[#4a4a5e] mt-0.5 line-clamp-2">{ct.description}</div>
+                </button>
+              ))}
+            </div>
+            {!hasCredentials && selectedType && (
+              <div className="flex items-center gap-1.5 mt-2 text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <p className="text-[10px]">
+                  No credentials configured for {selectedType.name}. Set them in Settings.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Template dropdown */}

@@ -57,6 +57,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
       id: uuidv4(),
       name: config.name,
       template: config.template,
+      cellType: config.cellType || 'sdk',
       createdAt: new Date().toISOString(),
       port,
       status: 'created',

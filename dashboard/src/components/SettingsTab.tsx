@@ -376,6 +376,18 @@ export function SettingsTab({ agent }: SettingsTabProps) {
         {/* Agent Configuration */}
         <Section title="Agent Configuration" icon={Cog}>
           <div className="space-y-5">
+            {/* Cell Type (read-only) */}
+            <div>
+              <label className="block text-xs text-[#7a7a8e] mb-1.5">Cell Type</label>
+              <span className={`inline-flex items-center px-3 py-1.5 text-xs rounded-lg border ${
+                agent.cellType === 'cli'
+                  ? 'border-purple-500/30 bg-purple-500/10 text-purple-400'
+                  : 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400'
+              }`}>
+                {agent.cellType === 'cli' ? 'CLI (Claude Code)' : 'SDK (API Key)'}
+              </span>
+            </div>
+
             {/* Model */}
             <div>
               <label className="block text-xs text-[#7a7a8e] mb-1.5">Model</label>

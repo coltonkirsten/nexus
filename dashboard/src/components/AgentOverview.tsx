@@ -142,7 +142,16 @@ function AgentCard({ agent }: { agent: Agent }) {
 
       {/* Meta */}
       <div className="space-y-1.5 mb-4">
-        <p className="text-[10px] text-[#4a4a5e] font-mono">ID: {agent.id.slice(0, 8)}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] text-[#4a4a5e] font-mono">ID: {agent.id.slice(0, 8)}</p>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+            agent.cellType === 'cli'
+              ? 'bg-purple-500/10 text-purple-400'
+              : 'bg-indigo-500/10 text-indigo-400'
+          }`}>
+            {agent.cellType === 'cli' ? 'CLI' : 'SDK'}
+          </span>
+        </div>
         <p className="text-[10px] text-[#4a4a5e]">Last activity: {formatTime(agent.lastActivity)}</p>
       </div>
 
@@ -300,6 +309,18 @@ export function AgentOverview() {
               }
             >
               Volumes
+            </NavLink>
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                `pb-3 text-sm transition-all duration-200 border-b-2 ${
+                  isActive
+                    ? 'text-indigo-400 border-indigo-400'
+                    : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e]'
+                }`
+              }
+            >
+              Settings
             </NavLink>
           </nav>
         </div>
