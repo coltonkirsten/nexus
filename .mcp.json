@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "nexus": {
+      "command": "node",
+      "args": ["mcp/dist/index.js"],
+      "env": {
+        "NEXUS_API_URL": "http://localhost:3001"
+      }
+    }
+  }
+}
