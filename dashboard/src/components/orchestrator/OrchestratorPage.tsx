@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
-import { Cpu, Plus, ChevronDown, Users } from 'lucide-react';
+import { Cpu, Plus, ChevronDown, Users, PlayCircle, StopCircle, Loader2 } from 'lucide-react';
 import type { Agent, Team } from '../../types/agent';
-import { listAgents } from '../../api/agents';
+import { listAgents, startAgent, stopAgent } from '../../api/agents';
 import { listTeams } from '../../api/teams';
 import { getAllUnreadCounts } from '../../api/mailbox';
 import { OrchestratorProvider } from './OrchestratorContext';
@@ -14,6 +14,7 @@ import { CreateAgentModal } from '../CreateAgentModal';
 import { CreateTeamModal } from '../CreateTeamModal';
 
 export function OrchestratorPage() {
+  const queryClient = useQueryClient();
   const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
@@ -35,6 +36,36 @@ export function OrchestratorPage() {
     queryFn: getAllUnreadCounts,
     refetchInterval: 10000,
   });
+
+  // Compute running/stopped agents for bulk actions
+  const runningAgents = agents.filter(a => a.status === 'running');
+  const stoppedAgents = agents.filter(a => a.status === 'stopped' || a.status === 'created');
+
+  // Start All mutation
+  const startAllMutation = useMutation({
+    mutationFn: async () => {
+      for (const agent of stoppedAgents) {
+        await startAgent(agent.id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
+  // Stop All mutation
+  const stopAllMutation = useMutation({
+    mutationFn: async () => {
+      for (const agent of runningAgents) {
+        await stopAgent(agent.id);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
+  const isBatchRunning = startAllMutation.isPending || stopAllMutation.isPending;
 
   return (
     <OrchestratorProvider>
@@ -94,6 +125,37 @@ export function OrchestratorPage() {
                   Settings
                 </NavLink>
               </nav>
+              {/* Bulk actions */}
+              {agents.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => startAllMutation.mutate()}
+                    disabled={isBatchRunning || stoppedAgents.length === 0}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-emerald-400 border border-emerald-800/50 text-xs rounded-lg hover:bg-emerald-500/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={`Start ${stoppedAgents.length} stopped agent(s)`}
+                  >
+                    {startAllMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <PlayCircle className="w-3.5 h-3.5" />
+                    )}
+                    Start All
+                  </button>
+                  <button
+                    onClick={() => stopAllMutation.mutate()}
+                    disabled={isBatchRunning || runningAgents.length === 0}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-red-400 border border-red-800/50 text-xs rounded-lg hover:bg-red-500/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={`Stop ${runningAgents.length} running agent(s)`}
+                  >
+                    {stopAllMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <StopCircle className="w-3.5 h-3.5" />
+                    )}
+                    Stop All
+                  </button>
+                </div>
+              )}
               {/* Create dropdown */}
               <div className="relative">
                 <button
