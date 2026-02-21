@@ -42,6 +42,9 @@ RUN mkdir -p /etc/apt/keyrings && \
 # Install claude CLI globally (used by CLI cell mode)
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install gemini CLI globally (used by Gemini cell mode)
+RUN npm install -g @google/gemini-cli
+
 # Create non-root user "agent"
 RUN useradd -m -s /bin/bash agent
 

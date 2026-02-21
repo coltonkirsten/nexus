@@ -5,8 +5,9 @@ import { readFile, readdir, stat, writeFile, unlink, appendFile, mkdir, rm } fro
 import { join, normalize, extname } from "path";
 import { createNexusMcpServer, updatePeers, getPeers, type PeerAgent } from "./mcp.js";
 import { runCliAgent } from "./cli-runner.js";
+import { runGeminiCliAgent } from "./gemini-cli-runner.js";
 
-// Cell mode: "sdk" (default) or "cli"
+// Cell mode: "sdk" (default), "cli", or "gemini"
 const CELL_MODE = process.env.CELL_MODE || "sdk";
 
 const BINARY_EXTENSIONS = new Set([
@@ -394,6 +395,84 @@ async function runAgent(
         currentSessionId = cliResult.sessionId;
         await saveSessionId(cliResult.sessionId);
       }
+    } else if (CELL_MODE === "gemini") {
+      // --- Gemini CLI mode: spawn the gemini binary ---
+      const geminiOnLogEntry = (type: string, data: unknown) => {
+        // Normalize Gemini CLI event format to match SDK format (same as CLI mode)
+        if (type === "agent_message" && data && typeof data === "object") {
+          const msg = data as Record<string, unknown>;
+          if (msg.type === "assistant" && Array.isArray(msg.content) && !msg.message) {
+            msg.message = { content: msg.content };
+          }
+          if (msg.type === "user" && Array.isArray(msg.content) && !msg.message) {
+            msg.message = { content: msg.content };
+          }
+        }
+        addLog(type, data);
+
+        // Extract session_id from system init messages
+        if (
+          data &&
+          typeof data === "object" &&
+          "type" in data &&
+          (data as Record<string, unknown>).type === "system" &&
+          "subtype" in data &&
+          (data as Record<string, unknown>).subtype === "init" &&
+          "session_id" in data &&
+          typeof (data as Record<string, unknown>).session_id === "string"
+        ) {
+          const newSessionId = (data as Record<string, unknown>).session_id as string;
+          if (newSessionId !== currentSessionId) {
+            currentSessionId = newSessionId;
+            saveSessionId(newSessionId).catch(() => {});
+          }
+        }
+      };
+
+      let geminiResult;
+      try {
+        geminiResult = await runGeminiCliAgent({
+          message,
+          systemPrompt,
+          appendPrompt,
+          model: config.model || "gemini-2.5-flash",
+          maxTurns: config.maxTurns || 50,
+          sessionId: resumeSessionId,
+          abortSignal: abortController.signal,
+          onLogEntry: geminiOnLogEntry,
+        });
+      } catch (geminiErr) {
+        // If session is stale, clear it and retry without resume
+        const errMsg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr);
+        if (resumeSessionId && (errMsg.includes("session") || errMsg.includes("resume"))) {
+          addLog("session_stale", { sessionId: resumeSessionId, message: "Stale session detected, retrying without resume" });
+          await clearSessionFile();
+          geminiResult = await runGeminiCliAgent({
+            message,
+            systemPrompt,
+            appendPrompt,
+            model: config.model || "gemini-2.5-flash",
+            maxTurns: config.maxTurns || 50,
+            sessionId: null,
+            abortSignal: abortController.signal,
+            onLogEntry: geminiOnLogEntry,
+          });
+        } else {
+          throw geminiErr;
+        }
+      }
+
+      resultText = geminiResult.resultText;
+      invocationInputTokens = geminiResult.inputTokens;
+      invocationOutputTokens = geminiResult.outputTokens;
+      tokenUsage.inputTokens += geminiResult.inputTokens;
+      tokenUsage.outputTokens += geminiResult.outputTokens;
+      tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
+
+      if (geminiResult.sessionId && geminiResult.sessionId !== currentSessionId) {
+        currentSessionId = geminiResult.sessionId;
+        await saveSessionId(geminiResult.sessionId);
+      }
     } else {
       // --- SDK mode: use the Anthropic Agent SDK ---
 
@@ -689,7 +768,12 @@ app.post("/message", async (req: Request, res: Response) => {
   }
 
   // Check for required credentials based on cell mode
-  if (CELL_MODE === "cli") {
+  if (CELL_MODE === "gemini") {
+    if (!process.env.GEMINI_API_KEY) {
+      res.status(500).json({ error: "GEMINI_API_KEY not configured. Add it in Settings → Credentials." });
+      return;
+    }
+  } else if (CELL_MODE === "cli") {
     if (!process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
       res.status(500).json({ error: "CLI mode requires CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY" });
       return;

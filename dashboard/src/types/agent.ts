@@ -55,12 +55,18 @@ export interface CredentialField {
   placeholder?: string;
 }
 
+export interface ModelOption {
+  value: string;
+  label: string;
+}
+
 export interface CellTypeDefinition {
   id: string;
   name: string;
   description: string;
   credentials: CredentialField[];
   engineMode: string;
+  models: ModelOption[];
 }
 
 export type CredentialStore = Record<string, Record<string, string>>;

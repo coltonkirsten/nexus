@@ -13,7 +13,7 @@ import {
   Trash2,
   HardDrive,
 } from 'lucide-react';
-import type { Agent, AgentConfig } from '../types/agent';
+import type { Agent, AgentConfig, ModelOption } from '../types/agent';
 import {
   updateAgentConfig,
   getSystemPrompt,
@@ -24,6 +24,7 @@ import {
   createSkill,
   updateSkill as updateSkillApi,
   deleteSkill,
+  listCellTypes,
   type SkillData,
 } from '../api/agents';
 import { ConfirmModal } from './ConfirmModal';
@@ -32,12 +33,6 @@ import { VolumeSlots } from './VolumeSlots';
 interface SettingsTabProps {
   agent: Agent;
 }
-
-const MODEL_OPTIONS = [
-  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-  { value: 'claude-sonnet-4-6-20250514', label: 'Sonnet 4.6' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
-];
 
 const TOOL_OPTIONS = [
   { value: 'Bash', label: 'Bash' },
@@ -301,6 +296,15 @@ export function SettingsTab({ agent }: SettingsTabProps) {
     queryFn: () => listSkills(agent.id),
   });
 
+  const { data: cellTypes } = useQuery({
+    queryKey: ['cell-types'],
+    queryFn: listCellTypes,
+    staleTime: Infinity,
+  });
+
+  const modelOptions: ModelOption[] =
+    cellTypes?.find(ct => ct.id === agent.cellType)?.models ?? [];
+
   // Mutations
   const configMutation = useMutation({
     mutationFn: (cfg: AgentConfig) => updateAgentConfig(agent.id, cfg),
@@ -382,9 +386,11 @@ export function SettingsTab({ agent }: SettingsTabProps) {
               <span className={`inline-flex items-center px-3 py-1.5 text-xs rounded-lg border ${
                 agent.cellType === 'cli'
                   ? 'border-purple-500/30 bg-purple-500/10 text-purple-400'
-                  : 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400'
+                  : agent.cellType === 'gemini'
+                    ? 'border-blue-500/30 bg-blue-500/10 text-blue-400'
+                    : 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400'
               }`}>
-                {agent.cellType === 'cli' ? 'CLI (Claude Code)' : 'SDK (API Key)'}
+                {cellTypes?.find(ct => ct.id === agent.cellType)?.name ?? agent.cellType ?? 'Unknown'}
               </span>
             </div>
 
@@ -396,7 +402,7 @@ export function SettingsTab({ agent }: SettingsTabProps) {
                 onChange={(e) => setConfig(prev => ({ ...prev, model: e.target.value }))}
                 className="w-full px-4 py-2.5 bg-[#0f0f18] border border-[#1e1e3a] rounded-xl text-[#e0e0e8] text-sm focus:outline-none focus:border-indigo-500 transition-all duration-200"
               >
-                {MODEL_OPTIONS.map((o) => (
+                {modelOptions.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
