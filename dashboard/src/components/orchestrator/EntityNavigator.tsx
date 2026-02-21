@@ -17,26 +17,26 @@ import { startAgent, stopAgent, deleteAgent } from '../../api/agents';
 import { useOrchestratorDispatch } from './OrchestratorContext';
 
 // Status colors:
-// - Processing (running + isProcessing): pulsing green
+// - Processing (running + isProcessing): pulsing green with glow
 // - Running idle: solid green
 // - Stopped/created: grey
 // - Error: red
-// - Starting/stopping: yellow
-function getStatusStyle(agent: Agent): { color: string; pulse: boolean } {
+// - Starting/stopping: yellow pulse
+function getStatusStyle(agent: Agent): { color: string; animation: string } {
   if (agent.status === 'error') {
-    return { color: 'bg-red-500', pulse: false };
+    return { color: 'bg-red-500', animation: '' };
   }
   if (agent.status === 'starting' || agent.status === 'stopping') {
-    return { color: 'bg-yellow-400', pulse: true };
+    return { color: 'bg-yellow-400', animation: 'animate-pulse' };
   }
   if (agent.status === 'running') {
     if (agent.isProcessing) {
-      return { color: 'bg-emerald-400', pulse: true };
+      return { color: 'bg-emerald-400', animation: 'animate-processing' };
     }
-    return { color: 'bg-emerald-400', pulse: false };
+    return { color: 'bg-emerald-400', animation: '' };
   }
   // stopped, created, or unknown
-  return { color: 'bg-[#4a4a5e]', pulse: false };
+  return { color: 'bg-[#4a4a5e]', animation: '' };
 }
 
 interface EntityNavigatorProps {
@@ -99,9 +99,7 @@ function AgentNode({ agent }: { agent: Agent }) {
         className="group w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[#1a1a2e] rounded-lg transition-all duration-150"
       >
         <div
-          className={`w-2 h-2 rounded-full shrink-0 ${getStatusStyle(agent).color} ${
-            getStatusStyle(agent).pulse ? 'animate-pulse' : ''
-          }`}
+          className={`w-2 h-2 rounded-full shrink-0 ${getStatusStyle(agent).color} ${getStatusStyle(agent).animation}`}
         />
         <span className="text-xs text-[#e0e0e8] truncate flex-1">{agent.name}</span>
         <span className={`text-[9px] px-1 py-0.5 rounded shrink-0 ${

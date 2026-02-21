@@ -63,3 +63,19 @@ html {
 ::selection {
   background: rgba(99, 102, 241, 0.3);
 }
+
+/* Processing indicator - more visible pulse with glow */
+@keyframes processing-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0);
+  }
+}
+
+.animate-processing {
+  animation: processing-pulse 1.5s ease-in-out infinite;
+}

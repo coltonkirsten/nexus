@@ -20,26 +20,26 @@ import { getMailbox } from '../../api/mailbox';
 import { useOrchestratorDispatch } from './OrchestratorContext';
 
 // Status colors:
-// - Processing (running + isProcessing): pulsing green
+// - Processing (running + isProcessing): pulsing green with glow
 // - Running idle: solid green
 // - Stopped/created: grey
 // - Error: red
-// - Starting/stopping: yellow
-function getStatusStyle(agent: Agent): { color: string; pulse: boolean } {
+// - Starting/stopping: yellow pulse
+function getStatusStyle(agent: Agent): { color: string; animation: string } {
   if (agent.status === 'error') {
-    return { color: 'bg-red-500', pulse: false };
+    return { color: 'bg-red-500', animation: '' };
   }
   if (agent.status === 'starting' || agent.status === 'stopping') {
-    return { color: 'bg-yellow-400', pulse: true };
+    return { color: 'bg-yellow-400', animation: 'animate-pulse' };
   }
   if (agent.status === 'running') {
     if (agent.isProcessing) {
-      return { color: 'bg-emerald-400', pulse: true };
+      return { color: 'bg-emerald-400', animation: 'animate-processing' };
     }
-    return { color: 'bg-emerald-400', pulse: false };
+    return { color: 'bg-emerald-400', animation: '' };
   }
   // stopped, created, or unknown
-  return { color: 'bg-[#4a4a5e]', pulse: false };
+  return { color: 'bg-[#4a4a5e]', animation: '' };
 }
 
 const statusLabels: Record<string, string> = {
@@ -153,9 +153,7 @@ export function DashboardView({ agents, teams }: DashboardViewProps) {
               >
                 <div className="flex items-center gap-2 mb-1">
                   <div
-                    className={`w-2 h-2 rounded-full ${getStatusStyle(agent).color} ${
-                      getStatusStyle(agent).pulse ? 'animate-pulse' : ''
-                    }`}
+                    className={`w-2 h-2 rounded-full ${getStatusStyle(agent).color} ${getStatusStyle(agent).animation}`}
                   />
                   <span className="text-xs font-medium text-[#e0e0e8] truncate">{agent.name}</span>
                 </div>
