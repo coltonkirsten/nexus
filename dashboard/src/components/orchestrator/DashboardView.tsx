@@ -19,14 +19,28 @@ import { getTeamEvents } from '../../api/teams';
 import { getMailbox } from '../../api/mailbox';
 import { useOrchestratorDispatch } from './OrchestratorContext';
 
-const statusColors: Record<string, string> = {
-  running: 'bg-emerald-400',
-  starting: 'bg-yellow-400',
-  stopping: 'bg-yellow-400',
-  stopped: 'bg-red-400',
-  error: 'bg-red-400',
-  created: 'bg-[#4a4a5e]',
-};
+// Status colors:
+// - Processing (running + isProcessing): pulsing green
+// - Running idle: solid green
+// - Stopped/created: grey
+// - Error: red
+// - Starting/stopping: yellow
+function getStatusStyle(agent: Agent): { color: string; pulse: boolean } {
+  if (agent.status === 'error') {
+    return { color: 'bg-red-500', pulse: false };
+  }
+  if (agent.status === 'starting' || agent.status === 'stopping') {
+    return { color: 'bg-yellow-400', pulse: true };
+  }
+  if (agent.status === 'running') {
+    if (agent.isProcessing) {
+      return { color: 'bg-emerald-400', pulse: true };
+    }
+    return { color: 'bg-emerald-400', pulse: false };
+  }
+  // stopped, created, or unknown
+  return { color: 'bg-[#4a4a5e]', pulse: false };
+}
 
 const statusLabels: Record<string, string> = {
   running: 'Running',
@@ -139,8 +153,8 @@ export function DashboardView({ agents, teams }: DashboardViewProps) {
               >
                 <div className="flex items-center gap-2 mb-1">
                   <div
-                    className={`w-2 h-2 rounded-full ${statusColors[agent.status] || 'bg-[#4a4a5e]'} ${
-                      agent.status === 'running' ? 'animate-pulse' : ''
+                    className={`w-2 h-2 rounded-full ${getStatusStyle(agent).color} ${
+                      getStatusStyle(agent).pulse ? 'animate-pulse' : ''
                     }`}
                   />
                   <span className="text-xs font-medium text-[#e0e0e8] truncate">{agent.name}</span>

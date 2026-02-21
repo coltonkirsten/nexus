@@ -16,14 +16,28 @@ import type { Agent, Team } from '../../types/agent';
 import { startAgent, stopAgent, deleteAgent } from '../../api/agents';
 import { useOrchestratorDispatch } from './OrchestratorContext';
 
-const statusColors: Record<string, string> = {
-  running: 'bg-emerald-400',
-  starting: 'bg-yellow-400',
-  stopping: 'bg-yellow-400',
-  stopped: 'bg-red-400',
-  error: 'bg-red-400',
-  created: 'bg-[#4a4a5e]',
-};
+// Status colors:
+// - Processing (running + isProcessing): pulsing green
+// - Running idle: solid green
+// - Stopped/created: grey
+// - Error: red
+// - Starting/stopping: yellow
+function getStatusStyle(agent: Agent): { color: string; pulse: boolean } {
+  if (agent.status === 'error') {
+    return { color: 'bg-red-500', pulse: false };
+  }
+  if (agent.status === 'starting' || agent.status === 'stopping') {
+    return { color: 'bg-yellow-400', pulse: true };
+  }
+  if (agent.status === 'running') {
+    if (agent.isProcessing) {
+      return { color: 'bg-emerald-400', pulse: true };
+    }
+    return { color: 'bg-emerald-400', pulse: false };
+  }
+  // stopped, created, or unknown
+  return { color: 'bg-[#4a4a5e]', pulse: false };
+}
 
 interface EntityNavigatorProps {
   agents: Agent[];
@@ -85,8 +99,8 @@ function AgentNode({ agent }: { agent: Agent }) {
         className="group w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[#1a1a2e] rounded-lg transition-all duration-150"
       >
         <div
-          className={`w-2 h-2 rounded-full shrink-0 ${statusColors[agent.status] || 'bg-[#4a4a5e]'} ${
-            isRunning ? 'animate-pulse' : ''
+          className={`w-2 h-2 rounded-full shrink-0 ${getStatusStyle(agent).color} ${
+            getStatusStyle(agent).pulse ? 'animate-pulse' : ''
           }`}
         />
         <span className="text-xs text-[#e0e0e8] truncate flex-1">{agent.name}</span>

@@ -150,11 +150,13 @@ router.get('/', async (_req: Request, res: Response) => {
   try {
     const agents = await listAgents();
 
-    // Enrich with current container status
+    // Enrich with current container status and processing state
     const enrichedAgents = await Promise.all(
       agents.map(async agent => {
         const status = await getContainerStatus(agent.id);
-        return { ...agent, status };
+        const queueStats = await getQueueStats(agent.id);
+        const isProcessing = queueStats.processing > 0;
+        return { ...agent, status, isProcessing };
       })
     );
 

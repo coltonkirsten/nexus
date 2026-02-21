@@ -39,6 +39,7 @@ export interface Agent {
   ledgerVolumeId?: string;
   workspaceVolumeId?: string;
   teamId?: string;
+  isProcessing?: boolean;
 }
 
 // Health summary for the dashboard
