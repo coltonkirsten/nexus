@@ -34,3 +34,7 @@ data/queues/
 
 # Test coverage
 coverage/
+
+# API runtime data (contains credentials)
+api/data/
+!api/data/.gitkeep

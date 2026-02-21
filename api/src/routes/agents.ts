@@ -165,6 +165,150 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/agents/health-summary - Aggregate health statistics for all agents
+router.get('/health-summary', async (_req: Request, res: Response) => {
+  try {
+    const agents = await listAgents();
+
+    // Get current container status for all agents
+    const agentsWithStatus = await Promise.all(
+      agents.map(async agent => {
+        const containerStatus = await getContainerStatus(agent.id);
+        return { ...agent, containerStatus };
+      })
+    );
+
+    // Aggregate health stats
+    const summary = {
+      total: agents.length,
+      byStatus: {
+        running: 0,
+        stopped: 0,
+        starting: 0,
+        stopping: 0,
+        created: 0,
+        error: 0,
+      } as Record<string, number>,
+      byHealthStatus: {
+        healthy: 0,
+        unhealthy: 0,
+        unknown: 0,
+      } as Record<string, number>,
+      totalRestarts: 0,
+      recentCrashes: [] as Array<{ agentId: string; agentName: string; crashTime: string }>,
+      uptime: {} as Record<string, number>, // agentId -> uptime in seconds
+    };
+
+    const now = Date.now();
+
+    for (const agent of agentsWithStatus) {
+      // Count by status
+      const status = agent.containerStatus || 'created';
+      summary.byStatus[status] = (summary.byStatus[status] || 0) + 1;
+
+      // Count by health status
+      const healthStatus = agent.healthStatus || 'unknown';
+      summary.byHealthStatus[healthStatus] = (summary.byHealthStatus[healthStatus] || 0) + 1;
+
+      // Total restarts
+      summary.totalRestarts += agent.restartCount || 0;
+
+      // Recent crashes (within last hour)
+      if (agent.lastCrashTime) {
+        const crashTime = new Date(agent.lastCrashTime).getTime();
+        if (now - crashTime < 60 * 60 * 1000) {
+          summary.recentCrashes.push({
+            agentId: agent.id,
+            agentName: agent.name,
+            crashTime: agent.lastCrashTime,
+          });
+        }
+      }
+
+      // Calculate uptime for running agents
+      if (agent.containerStatus === 'running' && agent.startedAt) {
+        const startTime = new Date(agent.startedAt).getTime();
+        summary.uptime[agent.id] = Math.floor((now - startTime) / 1000);
+      }
+    }
+
+    // Sort recent crashes by time (most recent first)
+    summary.recentCrashes.sort((a, b) =>
+      new Date(b.crashTime).getTime() - new Date(a.crashTime).getTime()
+    );
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Error getting health summary:', error);
+    res.status(500).json({ error: 'Failed to get health summary' });
+  }
+});
+
+// GET /api/agents/logs - Aggregate logs from all running agents (or filter by agentId)
+router.get('/logs', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.query;
+    const agents = await listAgents();
+
+    // Filter to specific agent if requested
+    const targetAgents = agentId
+      ? agents.filter(a => a.id === agentId)
+      : agents.filter(a => a.status === 'running' && a.port);
+
+    if (agentId && targetAgents.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    // Fetch logs from each agent's /logs/history endpoint
+    const allLogs: Array<{
+      agentId: string;
+      agentName: string;
+      timestamp: string;
+      type: string;
+      data: unknown;
+    }> = [];
+
+    await Promise.all(
+      targetAgents.map(async agent => {
+        if (!agent.port || agent.status !== 'running') return;
+
+        try {
+          const response = await fetch(`http://localhost:${agent.port}/logs/history`);
+          if (response.ok) {
+            const logs = await response.json() as Array<{ type: string; data: unknown; timestamp: string }>;
+            for (const log of logs) {
+              allLogs.push({
+                agentId: agent.id,
+                agentName: agent.name,
+                timestamp: log.timestamp,
+                type: log.type,
+                data: log.data,
+              });
+            }
+          }
+        } catch {
+          // Agent not responding, skip
+        }
+      })
+    );
+
+    // Sort by timestamp (most recent first)
+    allLogs.sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    res.json({
+      logs: allLogs,
+      agentCount: targetAgents.length,
+      totalEntries: allLogs.length,
+    });
+  } catch (error) {
+    console.error('Error aggregating logs:', error);
+    res.status(500).json({ error: 'Failed to aggregate logs' });
+  }
+});
+
 // GET /api/agents/:id - Get single agent with container status
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -445,7 +589,10 @@ router.post('/:id/start', async (req: Request, res: Response) => {
       console.error('Warning: template init failed (non-fatal):', initError);
     }
 
-    await updateAgent(id, { status: 'running' });
+    await updateAgent(id, {
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    });
 
     // Start the queue consumer for this agent
     startConsumer(id);

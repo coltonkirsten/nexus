@@ -43,6 +43,10 @@ export interface Agent {
   ledgerVolumeId?: string;
   workspaceVolumeId?: string;
   teamId?: string;
+  // Health monitoring fields
+  startedAt?: string;
+  restartCount?: number;
+  lastCrashTime?: string;
 }
 
 export interface AgentConfig {

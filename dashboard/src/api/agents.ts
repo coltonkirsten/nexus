@@ -53,6 +53,60 @@ export async function stopAgent(id: string): Promise<void> {
   await api.post(`/api/agents/${id}/stop`);
 }
 
+// Rebuild an agent container (stop -> start with fresh credentials)
+export async function rebuildAgent(id: string): Promise<void> {
+  // Stop the agent first (if running), then start to recreate container
+  await api.post(`/api/agents/${id}/stop`);
+  await api.post(`/api/agents/${id}/start`);
+}
+
+// Batch operations for multiple agents
+export async function startMultipleAgents(
+  ids: string[],
+  onProgress?: (completed: number, total: number, errors: string[]) => void
+): Promise<{ succeeded: string[]; failed: Array<{ id: string; error: string }> }> {
+  const succeeded: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+  const errors: string[] = [];
+
+  for (let i = 0; i < ids.length; i++) {
+    try {
+      await api.post(`/api/agents/${ids[i]}/start`);
+      succeeded.push(ids[i]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      failed.push({ id: ids[i], error: errorMsg });
+      errors.push(errorMsg);
+    }
+    onProgress?.(i + 1, ids.length, errors);
+  }
+
+  return { succeeded, failed };
+}
+
+export async function stopMultipleAgents(
+  ids: string[],
+  onProgress?: (completed: number, total: number, errors: string[]) => void
+): Promise<{ succeeded: string[]; failed: Array<{ id: string; error: string }> }> {
+  const succeeded: string[] = [];
+  const failed: Array<{ id: string; error: string }> = [];
+  const errors: string[] = [];
+
+  for (let i = 0; i < ids.length; i++) {
+    try {
+      await api.post(`/api/agents/${ids[i]}/stop`);
+      succeeded.push(ids[i]);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      failed.push({ id: ids[i], error: errorMsg });
+      errors.push(errorMsg);
+    }
+    onProgress?.(i + 1, ids.length, errors);
+  }
+
+  return { succeeded, failed };
+}
+
 export function getLogsStreamUrl(agentId: string): string {
   return `${API_BASE}/api/agents/${agentId}/logs`;
 }

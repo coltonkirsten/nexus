@@ -11,9 +11,11 @@ import {
   History,
   Timer,
   Trash2,
+  RotateCw,
 } from 'lucide-react';
 import type { Agent } from '../../types/agent';
-import { startAgent, stopAgent, deleteAgent, getAgentHistory, listCronJobs, type Invocation } from '../../api/agents';
+import { startAgent, stopAgent, deleteAgent, rebuildAgent, getAgentHistory, listCronJobs, type Invocation } from '../../api/agents';
+import { ConfirmModal } from '../ConfirmModal';
 import type { CronJob } from '../../types/agent';
 import { useOrchestratorDispatch } from './OrchestratorContext';
 
@@ -55,7 +57,16 @@ export function AgentInspector({ agent }: { agent: Agent }) {
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [deleteVolumesToo, setDeleteVolumesToo] = useState(false);
+
+  const rebuildMutation = useMutation({
+    mutationFn: () => rebuildAgent(agent.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      setShowRebuildConfirm(false);
+    },
+  });
 
   const deleteMutation = useMutation({
     mutationFn: (deleteVols: boolean) => deleteAgent(agent.id, deleteVols),
@@ -147,6 +158,18 @@ export function AgentInspector({ agent }: { agent: Agent }) {
             {isRunning ? 'Stop' : 'Start'}
           </button>
           <button
+            onClick={() => setShowRebuildConfirm(true)}
+            disabled={rebuildMutation.isPending || isTransitioning}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400 border border-amber-800/50 hover:bg-amber-500/10 rounded-lg transition-all duration-200 disabled:opacity-50"
+          >
+            {rebuildMutation.isPending ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <RotateCw className="w-3 h-3" />
+            )}
+            Rebuild
+          </button>
+          <button
             onClick={() => navigate(`/agent/${agent.id}`)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] border border-[#1e1e3a] hover:border-[#2a2a4a] rounded-lg transition-all duration-200"
           >
@@ -161,6 +184,17 @@ export function AgentInspector({ agent }: { agent: Agent }) {
             Delete
           </button>
         </div>
+
+        {/* Rebuild Confirmation Modal */}
+        <ConfirmModal
+          isOpen={showRebuildConfirm}
+          onClose={() => setShowRebuildConfirm(false)}
+          onConfirm={() => rebuildMutation.mutate()}
+          title="Rebuild Container"
+          message="This will recreate the container with fresh credentials. The agent will be stopped and restarted. Continue?"
+          confirmLabel="Rebuild"
+          variant="warning"
+        />
 
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>

@@ -6,6 +6,17 @@ import { config } from 'dotenv';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(__dirname, '../../.env') });
 
+// Global handlers to prevent crashes from unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  // Don't exit - let pm2 handle restarts if needed
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
+  // Don't exit - let pm2 handle restarts if needed
+});
+
 import { createServer } from 'http';
 import express from 'express';
 import cors from 'cors';
@@ -15,12 +26,13 @@ import volumesRouter from './routes/volumes.js';
 import teamsRouter from './routes/teams.js';
 import cellTypesRouter from './routes/cellTypes.js';
 import mailboxRouter from './routes/mailbox.js';
-import { listAgents, updateAgentHealthStatus, recoverAllStuckMessages } from './services/agents.js';
+import { recoverAllStuckMessages } from './services/agents.js';
 import { restartConsumersForRunningAgents } from './services/queueConsumer.js';
 import { handleTerminalConnection } from './services/terminal.js';
 import { initScheduler } from './services/cronScheduler.js';
 import { migrateFromEnv } from './services/credentials.js';
-import type { HealthStatus } from './types.js';
+import { startHealthCheckLoop } from './services/healthCheck.js';
+import { startOAuthSyncLoop } from './services/oauthSync.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -61,84 +73,6 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Health check configuration
-const HEALTH_CHECK_INTERVAL_MS = 30000; // 30 seconds
-const HEALTH_CHECK_MAX_FAILURES = 3;
-
-// In-memory failure tracking: agentId -> consecutive failure count
-const healthFailures: Map<string, number> = new Map();
-
-// Check health of a single agent container
-async function checkAgentHealth(agentId: string, port: number): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const response = await fetch(`http://localhost:${port}/health`, {
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-// Health check loop for all running agents
-async function runHealthChecks(): Promise<void> {
-  try {
-    const agents = await listAgents();
-
-    for (const agent of agents) {
-      // Only check running agents with valid ports
-      if (agent.status !== 'running' || !agent.port) {
-        // Reset health status for non-running agents
-        if (agent.healthStatus !== 'unknown') {
-          await updateAgentHealthStatus(agent.id, 'unknown', 0);
-        }
-        healthFailures.delete(agent.id);
-        continue;
-      }
-
-      const isHealthy = await checkAgentHealth(agent.id, agent.port);
-
-      if (isHealthy) {
-        // Reset failure count and mark as healthy
-        healthFailures.delete(agent.id);
-        if (agent.healthStatus !== 'healthy') {
-          await updateAgentHealthStatus(agent.id, 'healthy', 0);
-          console.log(`[Health Check] Agent ${agent.name} (${agent.id}) is healthy`);
-        }
-      } else {
-        // Increment failure count
-        const failures = (healthFailures.get(agent.id) || 0) + 1;
-        healthFailures.set(agent.id, failures);
-
-        if (failures >= HEALTH_CHECK_MAX_FAILURES) {
-          // Mark as unhealthy after 3 consecutive failures
-          if (agent.healthStatus !== 'unhealthy') {
-            await updateAgentHealthStatus(agent.id, 'unhealthy', failures);
-            console.warn(`[Health Check] Agent ${agent.name} (${agent.id}) marked UNHEALTHY after ${failures} failed checks`);
-          }
-        } else {
-          console.log(`[Health Check] Agent ${agent.name} (${agent.id}) health check failed (${failures}/${HEALTH_CHECK_MAX_FAILURES})`);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('[Health Check] Error running health checks:', error);
-  }
-}
-
-// Start the health check loop
-function startHealthCheckLoop(): void {
-  console.log(`[Health Check] Starting health check loop (interval: ${HEALTH_CHECK_INTERVAL_MS / 1000}s)`);
-  setInterval(runHealthChecks, HEALTH_CHECK_INTERVAL_MS);
-  // Run initial check after a short delay to let server stabilize
-  setTimeout(runHealthChecks, 5000);
-}
-
 // Startup initialization
 async function initialize(): Promise<void> {
   try {
@@ -158,6 +92,10 @@ async function initialize(): Promise<void> {
 
     // Restart queue consumers for any agents that are still running
     await restartConsumersForRunningAgents();
+
+    // Start OAuth token sync loop (checks macOS keychain for fresh tokens)
+    console.log('[Startup] Starting OAuth sync loop...');
+    startOAuthSyncLoop();
   } catch (error) {
     console.error('[Startup] Error during initialization:', error);
   }

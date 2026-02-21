@@ -30,13 +30,25 @@ export interface Agent {
   containerId?: string;
   status: AgentStatus;
   createdAt: string;
+  startedAt?: string;
   lastActivity?: string;
   healthStatus?: string;
   healthFailures?: number;
+  restartCount?: number;
   config?: AgentConfig;
   ledgerVolumeId?: string;
   workspaceVolumeId?: string;
   teamId?: string;
+}
+
+// Health summary for the dashboard
+export interface HealthSummary {
+  totalAgents: number;
+  runningCount: number;
+  stoppedCount: number;
+  errorCount: number;
+  agentsWithRestarts: Agent[];
+  recentCrashes: Agent[];
 }
 
 export interface CreateAgentRequest {

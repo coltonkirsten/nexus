@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, NavLink } from 'react-router-dom';
-import { Plus, Cpu, Play, Square, Trash2, Pencil, Check, X, Loader2 } from 'lucide-react';
+import { Plus, Cpu, Play, Square, Trash2, Pencil, Check, X, Loader2, RotateCw, PlayCircle, StopCircle } from 'lucide-react';
 import type { Agent } from '../types/agent';
-import { listAgents, startAgent, stopAgent, deleteAgent, renameAgent } from '../api/agents';
+import { listAgents, startAgent, stopAgent, deleteAgent, renameAgent, rebuildAgent, startMultipleAgents, stopMultipleAgents } from '../api/agents';
 import { CreateAgentModal } from './CreateAgentModal';
+import { ConfirmModal } from './ConfirmModal';
+import { HealthSummary } from './HealthSummary';
 
 function AgentCard({ agent }: { agent: Agent }) {
   const navigate = useNavigate();
@@ -13,6 +15,7 @@ function AgentCard({ agent }: { agent: Agent }) {
   const [newName, setNewName] = useState(agent.name);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [deleteVolumesToo, setDeleteVolumesToo] = useState(false);
   const isRunning = agent.status === 'running';
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
@@ -60,6 +63,19 @@ function AgentCard({ agent }: { agent: Agent }) {
       setIsRenaming(false);
     },
   });
+
+  const rebuildMutation = useMutation({
+    mutationFn: () => rebuildAgent(agent.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      setShowRebuildConfirm(false);
+    },
+  });
+
+  const handleRebuild = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowRebuildConfirm(true);
+  };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -185,6 +201,18 @@ function AgentCard({ agent }: { agent: Agent }) {
           </button>
         )}
         <button
+          onClick={handleRebuild}
+          disabled={rebuildMutation.isPending || isTransitioning}
+          className="p-1.5 text-[#4a4a5e] hover:text-amber-400 hover:bg-amber-500/10 rounded-xl transition-all duration-200 disabled:opacity-50"
+          title="Rebuild Container"
+        >
+          {rebuildMutation.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <RotateCw className="w-3.5 h-3.5" />
+          )}
+        </button>
+        <button
           onClick={handleDelete}
           disabled={deleteMutation.isPending}
           className="p-1.5 text-[#4a4a5e] hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all duration-200 disabled:opacity-50"
@@ -193,6 +221,17 @@ function AgentCard({ agent }: { agent: Agent }) {
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Rebuild Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showRebuildConfirm}
+        onClose={() => setShowRebuildConfirm(false)}
+        onConfirm={() => rebuildMutation.mutate()}
+        title="Rebuild Container"
+        message="This will recreate the container with fresh credentials. The agent will be stopped and restarted. Continue?"
+        confirmLabel="Rebuild"
+        variant="warning"
+      />
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
@@ -242,13 +281,55 @@ function AgentCard({ agent }: { agent: Agent }) {
 }
 
 export function AgentOverview() {
+  const queryClient = useQueryClient();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    action: 'start' | 'stop';
+    completed: number;
+    total: number;
+    errors: string[];
+  } | null>(null);
 
   const { data: agents = [], isLoading, error } = useQuery<Agent[]>({
     queryKey: ['agents'],
     queryFn: listAgents,
     refetchInterval: 5000,
   });
+
+  const runningAgents = agents.filter(a => a.status === 'running');
+  const stoppedAgents = agents.filter(a => a.status === 'stopped' || a.status === 'created' || a.status === 'error');
+
+  const startAllMutation = useMutation({
+    mutationFn: async () => {
+      const ids = stoppedAgents.map(a => a.id);
+      setBatchProgress({ action: 'start', completed: 0, total: ids.length, errors: [] });
+      const result = await startMultipleAgents(ids, (completed, total, errors) => {
+        setBatchProgress({ action: 'start', completed, total, errors });
+      });
+      return result;
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      setTimeout(() => setBatchProgress(null), 2000);
+    },
+  });
+
+  const stopAllMutation = useMutation({
+    mutationFn: async () => {
+      const ids = runningAgents.map(a => a.id);
+      setBatchProgress({ action: 'stop', completed: 0, total: ids.length, errors: [] });
+      const result = await stopMultipleAgents(ids, (completed, total, errors) => {
+        setBatchProgress({ action: 'stop', completed, total, errors });
+      });
+      return result;
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      setTimeout(() => setBatchProgress(null), 2000);
+    },
+  });
+
+  const isBatchRunning = startAllMutation.isPending || stopAllMutation.isPending;
 
   return (
     <div className="min-h-screen bg-[#0a0a0f]">
@@ -262,13 +343,45 @@ export function AgentOverview() {
               <p className="text-[10px] text-[#4a4a5e] tracking-wide uppercase">Agent Control System</p>
             </div>
           </div>
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200"
-          >
-            <Plus className="w-4 h-4" />
-            Create Agent
-          </button>
+          <div className="flex items-center gap-3">
+            {agents.length > 0 && (
+              <>
+                <button
+                  onClick={() => startAllMutation.mutate()}
+                  disabled={isBatchRunning || stoppedAgents.length === 0}
+                  className="flex items-center gap-2 px-3 py-2 text-emerald-400 border border-emerald-800/50 text-sm rounded-xl hover:bg-emerald-500/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={`Start ${stoppedAgents.length} stopped agent(s)`}
+                >
+                  {startAllMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <PlayCircle className="w-4 h-4" />
+                  )}
+                  Start All
+                </button>
+                <button
+                  onClick={() => stopAllMutation.mutate()}
+                  disabled={isBatchRunning || runningAgents.length === 0}
+                  className="flex items-center gap-2 px-3 py-2 text-red-400 border border-red-800/50 text-sm rounded-xl hover:bg-red-500/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={`Stop ${runningAgents.length} running agent(s)`}
+                >
+                  {stopAllMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <StopCircle className="w-4 h-4" />
+                  )}
+                  Stop All
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200"
+            >
+              <Plus className="w-4 h-4" />
+              Create Agent
+            </button>
+          </div>
         </div>
         {/* Nav tabs */}
         <div className="max-w-7xl mx-auto px-8">
@@ -328,6 +441,33 @@ export function AgentOverview() {
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-8 py-8">
+        {/* Batch Progress Indicator */}
+        {batchProgress && (
+          <div className="mb-6 bg-[#12121a] border border-[#1e1e3a] rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-[#e0e0e8]">
+                {batchProgress.action === 'start' ? 'Starting' : 'Stopping'} agents...
+              </span>
+              <span className="text-sm text-[#7a7a8e]">
+                {batchProgress.completed} / {batchProgress.total}
+              </span>
+            </div>
+            <div className="w-full bg-[#1e1e3a] rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all duration-300 ${
+                  batchProgress.action === 'start' ? 'bg-emerald-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${(batchProgress.completed / batchProgress.total) * 100}%` }}
+              />
+            </div>
+            {batchProgress.errors.length > 0 && (
+              <p className="text-xs text-red-400 mt-2">
+                {batchProgress.errors.length} error(s) occurred
+              </p>
+            )}
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex items-center justify-center py-32">
             <div className="text-center">
@@ -358,11 +498,17 @@ export function AgentOverview() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {agents.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} />
-            ))}
-          </div>
+          <>
+            {/* Health Summary */}
+            <HealthSummary agents={agents} />
+
+            {/* Agent Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {agents.map((agent) => (
+                <AgentCard key={agent.id} agent={agent} />
+              ))}
+            </div>
+          </>
         )}
       </main>
 
