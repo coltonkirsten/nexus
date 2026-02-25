@@ -1,4 +1,4 @@
-export type AgentStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
+export type AgentStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'rebuilding' | 'error' | 'paused';
 
 export type VolumeType = 'ledger' | 'workspace';
 
@@ -40,6 +40,10 @@ export interface Agent {
   workspaceVolumeId?: string;
   teamId?: string;
   isProcessing?: boolean;
+  // Pause state
+  pausedAt?: string;
+  pauseReason?: 'user' | 'oauth_expired' | 'error';
+  pausedMessageIds?: string[];
 }
 
 // Health summary for the dashboard
@@ -73,11 +77,20 @@ export interface ModelOption {
   label: string;
 }
 
+export interface SettingField {
+  key: string;
+  label: string;
+  description: string;
+  type: 'boolean';
+  default: boolean;
+}
+
 export interface CellTypeDefinition {
   id: string;
   name: string;
   description: string;
   credentials: CredentialField[];
+  settings?: SettingField[];
   engineMode: string;
   models: ModelOption[];
 }
@@ -109,13 +122,18 @@ export type TeamEventType =
   | 'agent_left'
   | 'agent_started'
   | 'agent_stopped'
+  | 'agent_rebuilt'
   | 'agent_deleted'
   | 'message_sent'
   | 'mail_sent'
   | 'mail_received'
   | 'processing_started'
   | 'processing_completed'
-  | 'processing_failed';
+  | 'processing_failed'
+  | 'session_cleared'
+  | 'intercom_sent'
+  | 'agent_paused'
+  | 'agent_resumed';
 
 export interface TeamEvent {
   id: string;
@@ -236,4 +254,45 @@ export interface MailMessage {
   timestamp: string;
   replyToId?: string;
   metadata?: Record<string, unknown>;
+}
+
+// --- Runs (Timeline) ---
+
+export type RunTriggerSource = 'cron' | 'mail' | 'intercom' | 'user' | 'api';
+
+export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface Run {
+  id: string;
+  teamId: string;
+  agentId: string;
+  agentName: string;
+  trigger: RunTriggerSource;
+  triggerId?: string; // cronJobId, mailId, etc.
+  status: RunStatus;
+  startedAt: string;
+  completedAt?: string;
+  eventIds: string[];
+  inputPreview?: string;
+  outputPreview?: string;
+  error?: string;
+  durationMs?: number;
+  tokenUsage?: {
+    input: number;
+    output: number;
+  };
+  costUsd?: number;
+}
+
+export interface TimelineData {
+  events: TeamEvent[];
+  runs: Run[];
+  agents: Array<{
+    id: string;
+    name: string;
+  }>;
+  timeRange: {
+    start: string;
+    end: string;
+  };
 }

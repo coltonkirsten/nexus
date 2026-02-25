@@ -6,6 +6,14 @@ export interface CredentialField {
   placeholder?: string;
 }
 
+export interface SettingField {
+  key: string;           // env var name when enabled
+  label: string;         // display name
+  description: string;   // explanatory text
+  type: 'boolean';       // only boolean for now, can extend later
+  default: boolean;
+}
+
 export interface ModelOption {
   value: string;   // model ID passed to engine
   label: string;   // display name
@@ -16,6 +24,7 @@ export interface CellTypeDefinition {
   name: string;
   description: string;
   credentials: CredentialField[];
+  settings?: SettingField[];  // optional feature toggles
   engineMode: string;    // value for CELL_MODE env var
   models: ModelOption[];
 }
@@ -39,11 +48,19 @@ export const CELL_TYPES: CellTypeDefinition[] = [
   {
     id: 'cli',
     name: 'CLI (Claude Code)',
-    description: 'Uses the claude CLI binary. Supports OAuth tokens from claude setup-token.',
+    description: 'Uses the claude CLI binary with OAuth authentication. Supports long-lived setup tokens.',
     engineMode: 'cli',
     credentials: [
-      { key: 'CLAUDE_CODE_OAUTH_TOKEN', label: 'Claude OAuth Token', required: false, placeholder: 'From: claude setup-token' },
-      { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API Key (fallback)', required: false, placeholder: 'sk-ant-...' },
+      { key: 'CLAUDE_CODE_OAUTH_TOKEN', label: 'Claude OAuth Token', required: true, placeholder: 'Use `claude setup-token` to generate' },
+    ],
+    settings: [
+      {
+        key: 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
+        label: 'Enable Agent Teams',
+        description: 'Allows agents to spawn and coordinate with teammate agents in parallel',
+        type: 'boolean',
+        default: false,
+      },
     ],
     models: [
       { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },

@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Loader2, Check, AlertTriangle, Eye, EyeOff, Key } from 'lucide-react';
+import { Save, Loader2, Check, AlertTriangle, Eye, EyeOff, Key, Settings } from 'lucide-react';
 import { listCellTypes, getCredentials, setCredentials } from '../api/agents';
-import type { CellTypeDefinition, CredentialStore } from '../types/agent';
+import type { CellTypeDefinition } from '../types/agent';
 
 export function CredentialsManager() {
   const queryClient = useQueryClient();
@@ -155,6 +155,39 @@ export function CredentialsManager() {
                 </div>
               );
             })}
+
+            {/* Settings (feature toggles) */}
+            {ct.settings && ct.settings.length > 0 && (
+              <div className="pt-4 border-t border-[#1e1e3a]">
+                <div className="flex items-center gap-2 mb-3">
+                  <Settings className="w-3.5 h-3.5 text-[#7a7a8e]" />
+                  <span className="text-xs font-medium text-[#7a7a8e] uppercase tracking-wide">Feature Flags</span>
+                </div>
+                {ct.settings.map((setting) => {
+                  const currentValue = credentials?.[ct.id]?.[setting.key] === '1';
+                  const editValue = editValues[ct.id]?.[setting.key];
+                  const isChecked = editValue !== undefined ? editValue === '1' : currentValue;
+
+                  return (
+                    <label
+                      key={setting.key}
+                      className="flex items-start gap-3 p-3 bg-[#0f0f18] border border-[#1e1e3a] rounded-xl cursor-pointer hover:border-indigo-500/50 transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => handleInputChange(ct.id, setting.key, e.target.checked ? '1' : '')}
+                        className="mt-0.5 w-4 h-4 rounded border-[#3a3a5e] bg-[#0a0a0f] text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0"
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-[#e0e0e8]">{setting.label}</div>
+                        <div className="text-xs text-[#7a7a8e] mt-0.5">{setting.description}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Save button */}
             <div className="flex items-center gap-3 pt-2">
