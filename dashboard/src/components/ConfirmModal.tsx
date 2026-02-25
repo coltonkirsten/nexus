@@ -53,7 +53,7 @@ export function ConfirmModal({
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-sm bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a] p-6">
+      <div className="relative w-full max-w-sm mx-4 md:mx-0 bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a] p-4 md:p-6">
         <div className="flex flex-col items-center text-center">
           <div className={`w-12 h-12 rounded-full ${config.iconBg} flex items-center justify-center mb-4`}>
             <Icon className={`w-6 h-6 ${config.iconColor}`} />

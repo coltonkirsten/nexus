@@ -193,6 +193,52 @@ export async function dequeueMessage(agentId: string): Promise<Message | null> {
   });
 }
 
+/**
+ * Dequeue ALL pending messages at once, marking them all as processing.
+ * Returns array of messages (empty if none pending).
+ */
+export async function dequeueAllMessages(agentId: string): Promise<Message[]> {
+  return withStateLock(async () => {
+    const queue = await loadQueue(agentId);
+
+    // Find all pending messages
+    const pendingMessages: Message[] = [];
+    for (const message of queue.messages) {
+      if (message.status === 'pending') {
+        message.status = 'processing';
+        pendingMessages.push(message);
+      }
+    }
+
+    if (pendingMessages.length > 0) {
+      await saveQueue(agentId, queue);
+    }
+
+    return pendingMessages;
+  });
+}
+
+/**
+ * Update status for multiple messages at once.
+ */
+export async function updateMultipleMessageStatus(
+  agentId: string,
+  messageIds: string[],
+  status: MessageStatus
+): Promise<void> {
+  return withStateLock(async () => {
+    const queue = await loadQueue(agentId);
+
+    for (const message of queue.messages) {
+      if (messageIds.includes(message.id)) {
+        message.status = status;
+      }
+    }
+
+    await saveQueue(agentId, queue);
+  });
+}
+
 export async function updateMessageStatus(
   agentId: string,
   messageId: string,

@@ -18,6 +18,7 @@ import {
   markAllMailAsRead,
 } from '../api/mailbox';
 import { getTeamMembers, type TeamMember } from '../api/teams';
+import { MarkdownContent } from '../utils/markdown';
 
 interface TeamMailboxTabProps {
   teamId: string;
@@ -384,10 +385,8 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
               </div>
 
               {/* Body */}
-              <div className="bg-[#0f0f18] border border-[#1e1e3a] rounded-xl p-4 mb-6">
-                <p className="text-sm text-[#e0e0e8] whitespace-pre-wrap leading-relaxed">
-                  {selectedMessage.body}
-                </p>
+              <div className="bg-[#0f0f18] border border-[#1e1e3a] rounded-xl p-4 mb-6 text-sm">
+                <MarkdownContent text={selectedMessage.body} />
               </div>
 
               {/* Actions */}

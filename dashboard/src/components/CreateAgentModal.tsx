@@ -75,7 +75,7 @@ export function CreateAgentModal({ isOpen, onClose }: CreateAgentModalProps) {
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-md bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
+      <div className="relative w-full max-w-md mx-4 md:mx-0 bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e3a]">
           <h3 className="text-sm font-semibold text-[#e0e0e8]">Create New Agent</h3>

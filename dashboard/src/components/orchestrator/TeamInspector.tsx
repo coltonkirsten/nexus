@@ -21,6 +21,9 @@ import {
   ChevronRight,
   ChevronDown,
   HardDrive,
+  RefreshCw,
+  ArrowRight,
+  Pause,
 } from 'lucide-react';
 import type { Team, TeamEvent, TeamEventType } from '../../types/agent';
 import { getTeamMembers, getTeamEvents, getTeamSharedTree, type TeamMember } from '../../api/teams';
@@ -54,6 +57,11 @@ const eventConfig: Record<TeamEventType, {
   processing_started: { icon: Loader2, color: 'text-yellow-400', bgColor: 'bg-yellow-500/10' },
   processing_completed: { icon: CheckCircle, color: 'text-emerald-400', bgColor: 'bg-emerald-500/10' },
   processing_failed: { icon: XCircle, color: 'text-red-400', bgColor: 'bg-red-500/10' },
+  agent_rebuilt: { icon: RefreshCw, color: 'text-blue-400', bgColor: 'bg-blue-500/10' },
+  session_cleared: { icon: Trash2, color: 'text-orange-400', bgColor: 'bg-orange-500/10' },
+  intercom_sent: { icon: ArrowRight, color: 'text-purple-400', bgColor: 'bg-purple-500/10' },
+  agent_paused: { icon: Pause, color: 'text-amber-400', bgColor: 'bg-amber-500/10' },
+  agent_resumed: { icon: Play, color: 'text-emerald-400', bgColor: 'bg-emerald-500/10' },
 };
 
 function formatTime(dateStr: string) {

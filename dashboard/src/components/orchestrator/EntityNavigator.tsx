@@ -11,6 +11,7 @@ import {
   Mail,
   Cpu,
   Trash2,
+  PanelLeftClose,
 } from 'lucide-react';
 import type { Agent, Team } from '../../types/agent';
 import { startAgent, stopAgent, deleteAgent } from '../../api/agents';
@@ -44,9 +45,10 @@ interface EntityNavigatorProps {
   teams: Team[];
   unreadCounts: Record<string, number>;
   isLoading: boolean;
+  onEntitySelect?: () => void;
 }
 
-function AgentNode({ agent }: { agent: Agent }) {
+function AgentNode({ agent, onSelect }: { agent: Agent; onSelect?: () => void }) {
   const dispatch = useOrchestratorDispatch();
   const queryClient = useQueryClient();
   const isRunning = agent.status === 'running';
@@ -76,6 +78,7 @@ function AgentNode({ agent }: { agent: Agent }) {
 
   const handleClick = () => {
     dispatch({ type: 'OPEN_TAB', payload: { tabType: 'agent', entityId: agent.id, label: agent.name } });
+    onSelect?.();
   };
 
   const handleStartStop = (e: React.MouseEvent) => {
@@ -188,16 +191,19 @@ function TeamNode({
   team,
   agents,
   unreadCount,
+  onSelect,
 }: {
   team: Team;
   agents: Agent[];
   unreadCount: number;
+  onSelect?: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const dispatch = useOrchestratorDispatch();
 
   const handleTeamClick = () => {
     dispatch({ type: 'OPEN_TAB', payload: { tabType: 'team', entityId: team.id, label: team.name } });
+    onSelect?.();
   };
 
   return (
@@ -231,7 +237,7 @@ function TeamNode({
       {expanded && (
         <div className="ml-4 mt-0.5 space-y-0.5">
           {agents.map((agent) => (
-            <AgentNode key={agent.id} agent={agent} />
+            <AgentNode key={agent.id} agent={agent} onSelect={onSelect} />
           ))}
           {agents.length === 0 && (
             <p className="text-[10px] text-[#4a4a5e] px-3 py-1">No members</p>
@@ -242,7 +248,7 @@ function TeamNode({
   );
 }
 
-export function EntityNavigator({ agents, teams, unreadCounts, isLoading }: EntityNavigatorProps) {
+export function EntityNavigator({ agents, teams, unreadCounts, isLoading, onEntitySelect }: EntityNavigatorProps) {
   const [filter, setFilter] = useState('');
 
   const teamAgentsMap = new Map<string, Agent[]>();
@@ -269,8 +275,22 @@ export function EntityNavigator({ agents, teams, unreadCounts, isLoading }: Enti
     (a) => !lowerFilter || a.name.toLowerCase().includes(lowerFilter)
   );
 
+  const dispatch = useOrchestratorDispatch();
+
   return (
-    <div className="w-[250px] border-r border-[#1e1e3a] flex flex-col shrink-0 bg-[#0a0a0f]">
+    <div className="w-full md:w-[250px] border-r border-[#1e1e3a] flex flex-col shrink-0 bg-[#0a0a0f]">
+      {/* Header with collapse button */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1e1e3a] shrink-0">
+        <span className="text-xs font-medium text-[#7a7a8e]">Navigator</span>
+        <button
+          onClick={() => dispatch({ type: 'TOGGLE_NAVIGATOR' })}
+          className="p-1 text-[#4a4a5e] hover:text-[#7a7a8e] rounded transition-colors"
+          title="Collapse navigator"
+        >
+          <PanelLeftClose className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
       {/* Filter */}
       <div className="p-3 border-b border-[#1e1e3a]">
         <div className="relative">
@@ -303,6 +323,7 @@ export function EntityNavigator({ agents, teams, unreadCounts, isLoading }: Enti
                       team={team}
                       agents={teamAgentsMap.get(team.id) || []}
                       unreadCount={unreadCounts[team.id] || 0}
+                      onSelect={onEntitySelect}
                     />
                   ))}
                 </div>
@@ -315,7 +336,7 @@ export function EntityNavigator({ agents, teams, unreadCounts, isLoading }: Enti
                 <p className="text-[9px] text-[#4a4a5e] uppercase tracking-wider px-3 mb-1.5">Standalone Agents</p>
                 <div className="space-y-0.5">
                   {filteredStandalone.map((agent) => (
-                    <AgentNode key={agent.id} agent={agent} />
+                    <AgentNode key={agent.id} agent={agent} onSelect={onEntitySelect} />
                   ))}
                 </div>
               </div>

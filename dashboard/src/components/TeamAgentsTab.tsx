@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, UserMinus, Loader2 } from 'lucide-react';
+import { Plus, X, UserMinus, Loader2, Pause, Play } from 'lucide-react';
 import type { Agent } from '../types/agent';
-import { listAgents } from '../api/agents';
+import { listAgents, pauseAgent, resumeAgent } from '../api/agents';
 import { getTeamMembers, addAgentToTeam, removeAgentFromTeam, type TeamMember } from '../api/teams';
 
 interface TeamAgentsTabProps {
@@ -53,9 +53,26 @@ export function TeamAgentsTab({ teamId }: TeamAgentsTabProps) {
     starting: 'bg-yellow-400',
     stopping: 'bg-yellow-400',
     stopped: 'bg-red-400',
+    paused: 'bg-amber-400',
     error: 'bg-red-400',
     created: 'bg-[#4a4a5e]',
   };
+
+  const pauseMutation = useMutation({
+    mutationFn: (agentId: string) => pauseAgent(agentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: (agentId: string) => resumeAgent(agentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
 
   const formatTime = (dateStr?: string) => {
     if (!dateStr) return 'No activity';
@@ -152,10 +169,14 @@ export function TeamAgentsTab({ teamId }: TeamAgentsTabProps) {
         <div className="space-y-2">
           {members.map((member) => {
             const isRunning = member.status === 'running';
+            const isPaused = member.status === 'paused';
+            const canRemove = !isRunning && !isPaused;
             return (
               <div
                 key={member.id}
-                className="flex items-center gap-3 px-4 py-3 bg-[#12121a] border border-[#1e1e3a] rounded-xl hover:border-[#2a2a4a] transition-all duration-200 cursor-pointer"
+                className={`flex items-center gap-3 px-4 py-3 bg-[#12121a] border rounded-xl hover:border-[#2a2a4a] transition-all duration-200 cursor-pointer ${
+                  isPaused ? 'border-amber-500/30' : 'border-[#1e1e3a]'
+                }`}
                 onClick={() => navigate(`/agent/${member.id}`)}
               >
                 <div className={`w-2.5 h-2.5 rounded-full ${statusColors[member.status] || 'bg-[#4a4a5e]'} ${isRunning ? 'animate-pulse' : ''}`} />
@@ -163,16 +184,56 @@ export function TeamAgentsTab({ teamId }: TeamAgentsTabProps) {
                   <p className="text-sm font-medium text-[#e0e0e8] truncate">{member.name}</p>
                   <p className="text-[10px] text-[#4a4a5e]">{formatTime(member.lastActivity)}</p>
                 </div>
-                <span className="text-[10px] text-[#4a4a5e] bg-[#1a1a2e] rounded-full px-2.5 py-0.5">
+                <span className={`text-[10px] rounded-full px-2.5 py-0.5 ${
+                  isPaused
+                    ? 'text-amber-400 bg-amber-500/10'
+                    : 'text-[#4a4a5e] bg-[#1a1a2e]'
+                }`}>
                   {member.status}
                 </span>
+                {/* Pause button - visible when running */}
+                {isRunning && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      pauseMutation.mutate(member.id);
+                    }}
+                    disabled={pauseMutation.isPending}
+                    title="Pause agent"
+                    className="p-1.5 text-[#4a4a5e] hover:text-amber-400 hover:bg-amber-500/10 rounded-xl transition-all duration-200 disabled:opacity-50"
+                  >
+                    {pauseMutation.isPending && pauseMutation.variables === member.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Pause className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                )}
+                {/* Resume button - visible when paused */}
+                {isPaused && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      resumeMutation.mutate(member.id);
+                    }}
+                    disabled={resumeMutation.isPending}
+                    title="Resume agent"
+                    className="p-1.5 text-[#4a4a5e] hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all duration-200 disabled:opacity-50"
+                  >
+                    {resumeMutation.isPending && resumeMutation.variables === member.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     removeMutation.mutate(member.id);
                   }}
-                  disabled={isRunning || removeMutation.isPending}
-                  title={isRunning ? 'Stop the agent before removing' : 'Remove from team'}
+                  disabled={!canRemove || removeMutation.isPending}
+                  title={!canRemove ? 'Stop/resume the agent before removing' : 'Remove from team'}
                   className="p-1.5 text-[#4a4a5e] hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   {removeMutation.isPending && removeMutation.variables === member.id ? (

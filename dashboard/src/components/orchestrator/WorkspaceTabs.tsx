@@ -61,7 +61,7 @@ export function WorkspaceTabs({ agents, teams }: WorkspaceTabsProps) {
                 <button
                   key={tab.id}
                   onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: { tabId: tab.id } })}
-                  className={`group flex items-center gap-2 px-4 py-2 text-xs border-b-2 transition-all duration-150 shrink-0 ${
+                  className={`group flex items-center gap-2 px-3 md:px-4 py-2.5 md:py-2 text-xs border-b-2 transition-all duration-150 shrink-0 min-h-[44px] md:min-h-0 ${
                     isActive
                       ? 'text-[#e0e0e8] border-indigo-400 bg-[#12121a]'
                       : 'text-[#4a4a5e] border-transparent hover:text-[#7a7a8e] hover:bg-[#12121a]/50'
@@ -88,10 +88,10 @@ export function WorkspaceTabs({ agents, teams }: WorkspaceTabsProps) {
               );
             })}
           </div>
-          {/* Inspector toggle */}
+          {/* Inspector toggle - hidden on mobile/tablet since inspector is always hidden there */}
           <button
             onClick={() => dispatch({ type: 'TOGGLE_INSPECTOR' })}
-            className={`px-3 py-2 border-l border-[#1e1e3a] transition-all duration-150 shrink-0 ${
+            className={`hidden lg:block px-3 py-2 border-l border-[#1e1e3a] transition-all duration-150 shrink-0 ${
               inspectorCollapsed
                 ? 'text-[#4a4a5e] hover:text-[#7a7a8e]'
                 : 'text-indigo-400'

@@ -99,6 +99,7 @@ export function maskCredentials(creds: Record<string, string>): Record<string, s
 /**
  * Migration: if ANTHROPIC_API_KEY exists in env but not in credential store,
  * seed the store with it so existing users don't lose access.
+ * Note: CLI cell type uses OAuth only, not API keys.
  */
 export async function migrateFromEnv(): Promise<void> {
   const envKey = process.env.ANTHROPIC_API_KEY;
@@ -109,10 +110,5 @@ export async function migrateFromEnv(): Promise<void> {
     console.log('[Credentials] Migrating ANTHROPIC_API_KEY from env to credential store');
     await setCredentials('sdk', { ANTHROPIC_API_KEY: envKey });
   }
-
-  // Also seed CLI fallback if not set
-  const cliCreds = await getCredentials('cli');
-  if (!cliCreds.ANTHROPIC_API_KEY) {
-    await setCredentials('cli', { ANTHROPIC_API_KEY: envKey });
-  }
+  // CLI uses OAuth only - do not seed API key
 }

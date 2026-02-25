@@ -26,7 +26,7 @@ export function InspectorPanel({ agents, teams }: InspectorPanelProps) {
       : null;
 
   return (
-    <div className="w-[320px] border-l border-[#1e1e3a] flex flex-col shrink-0 bg-[#0a0a0f]">
+    <div className="w-[320px] h-full border-l border-[#1e1e3a] flex flex-col shrink-0 bg-[#0a0a0f]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1e1e3a] shrink-0">
         <span className="text-xs font-medium text-[#7a7a8e]">Inspector</span>

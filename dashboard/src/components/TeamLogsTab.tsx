@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronRight,
   RefreshCw,
+  ArrowRight,
+  Pause,
 } from 'lucide-react';
 import type { TeamEvent, TeamEventType } from '../types/agent';
 import { getTeamEvents } from '../api/teams';
@@ -52,6 +54,12 @@ const eventConfig: Record<TeamEventType, {
     color: 'text-red-400',
     bgColor: 'bg-red-500/10',
     label: (e) => `${e.agentName} stopped`,
+  },
+  agent_rebuilt: {
+    icon: RefreshCw,
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-500/10',
+    label: (e) => `${e.agentName} was rebuilt`,
   },
   agent_deleted: {
     icon: Trash2,
@@ -109,6 +117,33 @@ const eventConfig: Record<TeamEventType, {
     bgColor: 'bg-red-500/10',
     label: (e) => `${e.agentName} failed`,
   },
+  session_cleared: {
+    icon: Trash2,
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-500/10',
+    label: (e) => `${e.agentName} cleared their session`,
+  },
+  intercom_sent: {
+    icon: ArrowRight,
+    color: 'text-purple-400',
+    bgColor: 'bg-purple-500/10',
+    label: (e) => {
+      const to = (e.data?.toAgentName as string) || 'unknown';
+      return `${e.agentName} -> ${to}`;
+    },
+  },
+  agent_paused: {
+    icon: Pause,
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-500/10',
+    label: (e) => `${e.agentName} paused`,
+  },
+  agent_resumed: {
+    icon: Play,
+    color: 'text-emerald-400',
+    bgColor: 'bg-emerald-500/10',
+    label: (e) => `${e.agentName} resumed`,
+  },
 };
 
 function EventEntry({ event }: { event: TeamEvent }) {
@@ -131,7 +166,7 @@ function EventEntry({ event }: { event: TeamEvent }) {
     });
   };
 
-  const hasDetail = event.type === 'message_sent' || event.type === 'processing_failed' || event.type === 'mail_sent' || event.type === 'mail_received';
+  const hasDetail = event.type === 'message_sent' || event.type === 'processing_failed' || event.type === 'mail_sent' || event.type === 'mail_received' || event.type === 'intercom_sent' || event.type === 'agent_paused';
 
   return (
     <div className="group">
@@ -183,14 +218,40 @@ function EventEntry({ event }: { event: TeamEvent }) {
               </p>
             </div>
           )}
-          {event.type === 'processing_failed' && event.data?.error && (
+          {event.type === 'processing_failed' && event.data && 'error' in event.data && (
             <div>
               <p className="text-[10px] text-[#4a4a5e] mb-1">Error details:</p>
               <pre className="text-xs text-red-400 whitespace-pre-wrap font-mono">
-                {typeof event.data.error === 'string'
+                {String(typeof event.data.error === 'string'
                   ? event.data.error
-                  : JSON.stringify(event.data.error, null, 2)}
+                  : JSON.stringify(event.data.error, null, 2))}
               </pre>
+            </div>
+          )}
+          {event.type === 'intercom_sent' && (
+            <div>
+              <p className="text-[10px] text-[#4a4a5e] mb-1">Message:</p>
+              <p className="text-sm text-[#e0e0e8] whitespace-pre-wrap font-mono">
+                {String(event.data?.messagePreview || 'No content')}
+              </p>
+            </div>
+          )}
+          {event.type === 'agent_paused' && event.data && 'reason' in event.data && (
+            <div>
+              <p className="text-[10px] text-[#4a4a5e] mb-1">Reason:</p>
+              <p className="text-sm text-[#e0e0e8]">
+                {(() => {
+                  const reason = String(event.data.reason);
+                  if (reason === 'oauth_expired') return 'OAuth token expired - requires re-authentication';
+                  if (reason === 'user') return 'Paused by user';
+                  return reason;
+                })()}
+              </p>
+              {'pausedMessageCount' in event.data && Number(event.data.pausedMessageCount || 0) > 0 && (
+                <p className="text-xs text-amber-400 mt-1">
+                  {String(event.data.pausedMessageCount)} message(s) waiting
+                </p>
+              )}
             </div>
           )}
         </div>

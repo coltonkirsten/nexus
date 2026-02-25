@@ -43,6 +43,7 @@ import {
   getAgentVolumes,
 } from '../services/volumes.js';
 import { emitTeamEvent, getTeam } from '../services/teams.js';
+import { saveAgentLogs, getMergedLogs } from '../services/agentLogs.js';
 import {
   createCronJob as createCronJobStorage,
   getCronJob,
@@ -633,6 +634,19 @@ router.post('/:id/stop', async (req: Request, res: Response) => {
       return;
     }
 
+    // Save logs before stopping so they persist
+    if (agent.port && agent.status === 'running') {
+      try {
+        const logsResponse = await fetch(`http://localhost:${agent.port}/logs/history`);
+        if (logsResponse.ok) {
+          const logs = await logsResponse.json();
+          await saveAgentLogs(id, logs);
+        }
+      } catch {
+        // Best effort - engine may not be responding
+      }
+    }
+
     // Stop the queue consumer before stopping the container
     await stopConsumer(id);
 
@@ -659,6 +673,106 @@ router.post('/:id/stop', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error stopping agent:', error);
     res.status(500).json({ error: 'Failed to stop agent' });
+  }
+});
+
+// POST /api/agents/:id/rebuild - Rebuild agent container (delete and recreate with fresh credentials)
+router.post('/:id/rebuild', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    // Save logs before rebuild so they persist across container recreation
+    if (agent.port && agent.status === 'running') {
+      try {
+        const logsResponse = await fetch(`http://localhost:${agent.port}/logs/history`);
+        if (logsResponse.ok) {
+          const logs = await logsResponse.json();
+          await saveAgentLogs(id, logs);
+        }
+      } catch {
+        console.log(`[Rebuild] Could not save logs for agent ${id.slice(0, 8)} (engine may not be responding)`);
+      }
+    }
+
+    // Stop queue consumer first
+    await stopConsumer(id);
+
+    // Update status
+    await updateAgent(id, { status: 'rebuilding' });
+
+    // Remove the old container completely (this is the key difference from stop+start)
+    try {
+      await removeContainer(id);
+    } catch {
+      // Container might not exist, that's fine
+    }
+
+    // Recreate container with fresh credentials
+    const { ledger, workspace } = await getAgentVolumes(id);
+    const team = agent.teamId ? await getTeam(agent.teamId) : null;
+    const containerId = await recreateContainer({
+      agentId: id,
+      agentName: agent.name,
+      port: agent.port!,
+      cellType: agent.cellType,
+      ledgerVolume: ledger?.dockerVolume,
+      workspaceVolume: workspace?.dockerVolume,
+      sharedVolume: team?.sharedVolume,
+      teamId: agent.teamId,
+    });
+    await updateAgent(id, { containerId });
+    await startContainer(id);
+
+    // Wait for engine to become healthy
+    const healthy = await waitForHealthy(id, agent.port!);
+    if (!healthy) {
+      await updateAgent(id, { status: 'error' });
+      res.status(500).json({ error: 'Engine failed to become healthy after rebuild' });
+      return;
+    }
+
+    // Initialize ledger from template (idempotent)
+    try {
+      const templateName = agent.template || 'blank';
+      await initializeAgent(id, templateName);
+    } catch (initError) {
+      console.error('Warning: template init failed (non-fatal):', initError);
+    }
+
+    await updateAgent(id, {
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    });
+
+    // Start queue consumer
+    startConsumer(id);
+
+    // Broadcast updated peer list
+    await broadcastPeers();
+
+    // Emit team event if in a team
+    if (agent.teamId) {
+      await emitTeamEvent({
+        id: uuidv4(),
+        teamId: agent.teamId,
+        type: 'agent_rebuilt',
+        timestamp: new Date().toISOString(),
+        agentId: id,
+        agentName: agent.name,
+      });
+    }
+
+    res.json({ success: true, message: 'Agent rebuilt with fresh credentials' });
+  } catch (error) {
+    console.error('Error rebuilding agent:', error);
+    await updateAgent(req.params.id, { status: 'error' });
+    res.status(500).json({ error: 'Failed to rebuild agent' });
   }
 });
 
@@ -902,6 +1016,20 @@ router.post('/:id/session/clear', async (req: Request, res: Response) => {
       return;
     }
 
+    // Emit team event if agent is in a team
+    if (agent.teamId) {
+      try {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'session_cleared',
+          timestamp: new Date().toISOString(),
+          agentId: id,
+          agentName: agent.name,
+        });
+      } catch { /* best-effort */ }
+    }
+
     res.json({
       success: true,
       message: 'Session cleared',
@@ -958,9 +1086,10 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
     // Update lastActivity
     await updateAgent(id, { lastActivity: new Date().toISOString() });
 
-    // Emit team event for inter-agent messages
+    // Emit team events for inter-agent messages
     if (role === 'agent' && agent.teamId && metadata?.fromAgentId && metadata?.fromAgentName) {
       try {
+        // Emit message_sent event (existing behavior)
         await emitTeamEvent({
           id: uuidv4(),
           teamId: agent.teamId,
@@ -971,6 +1100,22 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
           data: {
             targetAgentId: id,
             targetAgentName: agent.name,
+            messagePreview: message.slice(0, 200),
+          },
+        });
+
+        // Emit intercom_sent event (new for logging)
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'intercom_sent',
+          timestamp: new Date().toISOString(),
+          agentId: metadata.fromAgentId as string,
+          agentName: metadata.fromAgentName as string,
+          data: {
+            targetAgentId: id,
+            targetAgentName: agent.name,
+            messageId: enqueuedMessage.id,
             messagePreview: message.slice(0, 200),
           },
         });
@@ -1580,23 +1725,283 @@ router.get('/:id/logs/raw', async (req: Request, res: Response) => {
       return;
     }
 
+    // Try to get live logs from the engine
+    let liveLogs: unknown[] = [];
     if (agent.port && agent.status === 'running') {
       try {
         const response = await fetch(`http://localhost:${agent.port}/logs/history`);
         if (response.ok) {
-          const logs = await response.json();
-          res.json(logs);
-          return;
+          liveLogs = await response.json();
         }
       } catch {
-        // Engine not responding
+        // Engine not responding, that's ok - we'll serve persisted logs
       }
     }
 
-    res.json([]);
+    // Merge with persisted logs (handles rebuild scenarios)
+    const mergedLogs = await getMergedLogs(id, liveLogs as Array<{type: string; timestamp?: string; data?: unknown}>);
+    res.json(mergedLogs);
   } catch (error) {
     console.error('Error getting raw logs:', error);
     res.status(500).json({ error: 'Failed to get raw logs' });
+  }
+});
+
+// GET /api/agents/:id/logs/persisted - Get persisted logs from agent's ledger
+router.get('/:id/logs/persisted', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    // Try to get persisted logs via engine endpoint
+    if (agent.port && agent.status === 'running') {
+      try {
+        const response = await fetch(`http://localhost:${agent.port}/logs/persisted`);
+        if (response.ok) {
+          const data = await response.json();
+          res.json(data);
+          return;
+        }
+      } catch {
+        // Engine not responding or endpoint not available
+      }
+    }
+
+    // Fallback: try to read logs from ledger volume directly
+    try {
+      const result = await readVolumeFile(id, '/ledger/logs/current.jsonl');
+      if (result) {
+        const lines = result.content.trim().split('\n').filter(Boolean);
+        const logs = lines.map(line => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return { raw: line };
+          }
+        });
+        res.json({ logs, source: 'ledger' });
+        return;
+      }
+    } catch {
+      // Logs file might not exist
+    }
+
+    res.json({ logs: [], source: 'none' });
+  } catch (error) {
+    console.error('Error getting persisted logs:', error);
+    res.status(500).json({ error: 'Failed to get persisted logs' });
+  }
+});
+
+// GET /api/agents/:id/logs/archives - List archived log files
+router.get('/:id/logs/archives', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    // Try to get archives list via engine endpoint
+    if (agent.port && agent.status === 'running') {
+      try {
+        const response = await fetch(`http://localhost:${agent.port}/logs/archives`);
+        if (response.ok) {
+          const data = await response.json();
+          res.json(data);
+          return;
+        }
+      } catch {
+        // Engine not responding or endpoint not available
+      }
+    }
+
+    // Fallback: try to list log archives from ledger volume directly
+    try {
+      const entries = await listVolumeDirectory(id, '/ledger/logs');
+      const archives = entries
+        .filter((e: { name: string; type: string }) => e.type === 'file' && e.name.endsWith('.jsonl') && e.name !== 'current.jsonl')
+        .map((e: { name: string; path: string; size?: number }) => ({
+          name: e.name,
+          path: e.path,
+          size: e.size,
+        }));
+      res.json({ archives, source: 'ledger' });
+    } catch {
+      res.json({ archives: [], source: 'none' });
+    }
+  } catch (error) {
+    console.error('Error getting log archives:', error);
+    res.status(500).json({ error: 'Failed to get log archives' });
+  }
+});
+
+// --- Pause/Resume Endpoints ---
+
+// POST /api/agents/:id/pause - Pause agent (cancel task, stop consumer, update state)
+router.post('/:id/pause', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    if (agent.status !== 'running') {
+      res.status(400).json({ error: 'Agent must be running to pause' });
+      return;
+    }
+
+    // Cancel any running task
+    if (agent.port) {
+      try {
+        await fetch(`http://localhost:${agent.port}/cancel`, { method: 'POST' });
+      } catch {
+        // Best effort - task might not be running
+      }
+    }
+
+    // Stop the queue consumer
+    await stopConsumer(id);
+
+    // Get current queue stats to track paused messages
+    const queueStats = await getQueueStats(id);
+    const pendingMessages = await getQueue(id);
+    const pausedMessageIds = pendingMessages
+      .filter(m => m.status === 'pending' || m.status === 'processing')
+      .map(m => m.id);
+
+    // Update agent status
+    await updateAgent(id, {
+      status: 'paused',
+      pausedAt: new Date().toISOString(),
+      pauseReason: reason || 'manual',
+      pausedMessageIds,
+    });
+
+    // Emit team event if agent is in a team
+    if (agent.teamId) {
+      try {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'agent_paused',
+          timestamp: new Date().toISOString(),
+          agentId: id,
+          agentName: agent.name,
+          data: { reason: reason || 'manual', pendingMessages: pausedMessageIds.length },
+        });
+      } catch { /* best-effort */ }
+    }
+
+    res.json({
+      success: true,
+      message: 'Agent paused',
+      pausedMessageIds,
+    });
+  } catch (error) {
+    console.error('Error pausing agent:', error);
+    res.status(500).json({ error: 'Failed to pause agent' });
+  }
+});
+
+// POST /api/agents/:id/resume - Resume paused agent
+router.post('/:id/resume', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rebuild } = req.body;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    if (agent.status !== 'paused') {
+      res.status(400).json({ error: 'Agent is not paused' });
+      return;
+    }
+
+    // Optionally rebuild container (useful for OAuth refresh)
+    if (rebuild) {
+      await updateAgent(id, { status: 'rebuilding' });
+
+      try {
+        await removeContainer(id);
+      } catch {
+        // Container might not exist
+      }
+
+      const { ledger, workspace } = await getAgentVolumes(id);
+      const team = agent.teamId ? await getTeam(agent.teamId) : null;
+      const containerId = await recreateContainer({
+        agentId: id,
+        agentName: agent.name,
+        port: agent.port!,
+        cellType: agent.cellType,
+        ledgerVolume: ledger?.dockerVolume,
+        workspaceVolume: workspace?.dockerVolume,
+        sharedVolume: team?.sharedVolume,
+        teamId: agent.teamId,
+      });
+      await updateAgent(id, { containerId });
+      await startContainer(id);
+
+      // Wait for engine to become healthy
+      const healthy = await waitForHealthy(id, agent.port!);
+      if (!healthy) {
+        await updateAgent(id, { status: 'error' });
+        res.status(500).json({ error: 'Engine failed to become healthy after rebuild' });
+        return;
+      }
+    }
+
+    // Clear pause state
+    await updateAgent(id, {
+      status: 'running',
+      pausedAt: undefined,
+      pauseReason: undefined,
+      pausedMessageIds: undefined,
+    });
+
+    // Restart the queue consumer
+    startConsumer(id);
+
+    // Broadcast updated peer list
+    await broadcastPeers();
+
+    // Emit team event if agent is in a team
+    if (agent.teamId) {
+      try {
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'agent_resumed',
+          timestamp: new Date().toISOString(),
+          agentId: id,
+          agentName: agent.name,
+          data: { rebuilt: !!rebuild },
+        });
+      } catch { /* best-effort */ }
+    }
+
+    res.json({
+      success: true,
+      message: rebuild ? 'Agent rebuilt and resumed' : 'Agent resumed',
+    });
+  } catch (error) {
+    console.error('Error resuming agent:', error);
+    res.status(500).json({ error: 'Failed to resume agent' });
   }
 });
 

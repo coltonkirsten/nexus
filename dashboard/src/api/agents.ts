@@ -53,11 +53,17 @@ export async function stopAgent(id: string): Promise<void> {
   await api.post(`/api/agents/${id}/stop`);
 }
 
-// Rebuild an agent container (stop -> start with fresh credentials)
+export async function pauseAgent(id: string, reason?: string): Promise<void> {
+  await api.post(`/api/agents/${id}/pause`, reason ? { reason } : undefined);
+}
+
+export async function resumeAgent(id: string): Promise<void> {
+  await api.post(`/api/agents/${id}/resume`);
+}
+
+// Rebuild an agent container (delete and recreate with fresh credentials)
 export async function rebuildAgent(id: string): Promise<void> {
-  // Stop the agent first (if running), then start to recreate container
-  await api.post(`/api/agents/${id}/stop`);
-  await api.post(`/api/agents/${id}/start`);
+  await api.post(`/api/agents/${id}/rebuild`);
 }
 
 // Batch operations for multiple agents

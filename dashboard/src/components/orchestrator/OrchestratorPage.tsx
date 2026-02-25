@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
-import { Cpu, Plus, ChevronDown, Users, PlayCircle, StopCircle, Loader2, Menu, X, PanelRightOpen } from 'lucide-react';
+import { Cpu, Plus, ChevronDown, Users, PlayCircle, StopCircle, Loader2, Menu, X, PanelRightOpen, PanelLeftOpen } from 'lucide-react';
 import type { Agent, Team } from '../../types/agent';
 import { listAgents, startAgent, stopAgent } from '../../api/agents';
 import { listTeams } from '../../api/teams';
@@ -19,7 +19,7 @@ function OrchestratorInner() {
   const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const { mobileNavOpen, inspectorCollapsed } = useOrchestrator();
+  const { mobileNavOpen, inspectorCollapsed, navigatorCollapsed } = useOrchestrator();
   const dispatch = useOrchestratorDispatch();
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<Agent[]>({
@@ -287,15 +287,30 @@ function OrchestratorInner() {
 
       {/* Three-column layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Entity Navigator - hidden on mobile */}
-        <div className="hidden md:block">
-          <EntityNavigator
-            agents={agents}
-            teams={teams}
-            unreadCounts={unreadCounts}
-            isLoading={agentsLoading || teamsLoading}
-          />
-        </div>
+        {/* Expand button when navigator is collapsed */}
+        {navigatorCollapsed && (
+          <div className="hidden md:flex items-start pt-2 pl-2 shrink-0 border-r border-[#1e1e3a]">
+            <button
+              onClick={() => dispatch({ type: 'TOGGLE_NAVIGATOR' })}
+              className="p-1.5 text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+              title="Expand navigator"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Left: Entity Navigator - hidden on mobile or when collapsed */}
+        {!navigatorCollapsed && (
+          <div className="hidden md:block">
+            <EntityNavigator
+              agents={agents}
+              teams={teams}
+              unreadCounts={unreadCounts}
+              isLoading={agentsLoading || teamsLoading}
+            />
+          </div>
+        )}
 
         {/* Center: Workspace Tabs */}
         <WorkspaceTabs agents={agents} teams={teams} />

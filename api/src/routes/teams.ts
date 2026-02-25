@@ -13,8 +13,13 @@ import {
   removeAgentFromTeam,
   getTeamEvents,
 } from '../services/teams.js';
-import { getAgent } from '../services/agents.js';
+import { getAgent, listAgents } from '../services/agents.js';
 import { readFromVolume } from '../services/docker.js';
+import {
+  getRun,
+  getRunsForTeam,
+  getActiveRuns,
+} from '../services/runs.js';
 
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.webp', '.svg',
@@ -368,6 +373,162 @@ router.get('/:id/shared/file', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error reading shared drive file:', error);
     res.status(500).json({ error: 'Failed to read file' });
+  }
+});
+
+// --- Run Endpoints ---
+
+// GET /api/teams/:id/runs - List all runs for team
+router.get('/:id/runs', async (req: Request, res: Response) => {
+  try {
+    const team = await getTeam(req.params.id);
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+    const runs = await getRunsForTeam(req.params.id, limit);
+    res.json({ runs });
+  } catch (error) {
+    console.error('Error listing runs:', error);
+    res.status(500).json({ error: 'Failed to list runs' });
+  }
+});
+
+// GET /api/teams/:id/runs/active - Get active runs for team
+router.get('/:id/runs/active', async (req: Request, res: Response) => {
+  try {
+    const team = await getTeam(req.params.id);
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+
+    const runs = await getActiveRuns(req.params.id);
+    res.json({ runs });
+  } catch (error) {
+    console.error('Error getting active runs:', error);
+    res.status(500).json({ error: 'Failed to get active runs' });
+  }
+});
+
+// GET /api/teams/:id/runs/:runId - Get specific run
+router.get('/:id/runs/:runId', async (req: Request, res: Response) => {
+  try {
+    const team = await getTeam(req.params.id);
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+
+    const run = await getRun(req.params.id, req.params.runId);
+    if (!run) {
+      res.status(404).json({ error: 'Run not found' });
+      return;
+    }
+
+    res.json({ run });
+  } catch (error) {
+    console.error('Error getting run:', error);
+    res.status(500).json({ error: 'Failed to get run' });
+  }
+});
+
+// --- Timeline Endpoint ---
+
+// GET /api/teams/:id/timeline - Get unified timeline of events, runs, and agent activity
+router.get('/:id/timeline', async (req: Request, res: Response) => {
+  try {
+    const team = await getTeam(req.params.id);
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+
+    const startParam = req.query.start as string | undefined;
+    const endParam = req.query.end as string | undefined;
+    const groupByRun = req.query.groupByRun === 'true';
+
+    // Parse time range
+    const start = startParam ? new Date(startParam) : new Date(Date.now() - 24 * 60 * 60 * 1000); // Default: last 24h
+    const end = endParam ? new Date(endParam) : new Date();
+
+    // Get all events within time range
+    const allEvents = await getTeamEvents(req.params.id);
+    const filteredEvents = allEvents.filter(e => {
+      const eventTime = new Date(e.timestamp);
+      return eventTime >= start && eventTime <= end;
+    });
+
+    // Get all runs within time range
+    const allRuns = await getRunsForTeam(req.params.id);
+    const filteredRuns = allRuns.filter(r => {
+      const runStart = new Date(r.startedAt);
+      const runEnd = r.completedAt ? new Date(r.completedAt) : new Date();
+      return runStart <= end && runEnd >= start;
+    });
+
+    // Get team members (agents)
+    const members = await getTeamMembers(req.params.id);
+
+    // Transform runs to match dashboard expected format
+    const transformedRuns = filteredRuns.map(run => ({
+      id: run.id,
+      teamId: run.teamId,
+      agentId: run.triggerAgentId,
+      agentName: run.triggerAgentName,
+      trigger: run.triggerSource,
+      status: run.status,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      eventIds: run.eventIds,
+      metadata: run.metadata,
+      // Compute duration if completed
+      durationMs: run.completedAt
+        ? new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()
+        : undefined,
+    }));
+
+    // Build response
+    if (groupByRun) {
+      // Group events by runId
+      const eventsByRun: Record<string, typeof filteredEvents> = { unassociated: [] };
+
+      for (const run of filteredRuns) {
+        eventsByRun[run.id] = [];
+      }
+
+      for (const event of filteredEvents) {
+        if (event.runId && eventsByRun[event.runId]) {
+          eventsByRun[event.runId].push(event);
+        } else {
+          eventsByRun.unassociated.push(event);
+        }
+      }
+
+      res.json({
+        timeRange: { start: start.toISOString(), end: end.toISOString() },
+        events: filteredEvents, // Flat array for timeline visualization
+        runs: transformedRuns.map(run => ({
+          ...run,
+          events: eventsByRun[run.id] || [],
+        })),
+        unassociatedEvents: eventsByRun.unassociated,
+        agents: members,
+      });
+    } else {
+      // Return flat timeline
+      res.json({
+        timeRange: { start: start.toISOString(), end: end.toISOString() },
+        events: filteredEvents,
+        runs: transformedRuns,
+        agents: members,
+      });
+    }
+  } catch (error) {
+    console.error('Error getting timeline:', error);
+    res.status(500).json({ error: 'Failed to get timeline' });
   }
 });
 

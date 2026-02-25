@@ -12,9 +12,10 @@ import {
   Timer,
   Trash2,
   RotateCw,
+  Pause,
 } from 'lucide-react';
 import type { Agent } from '../../types/agent';
-import { startAgent, stopAgent, deleteAgent, rebuildAgent, getAgentHistory, listCronJobs, type Invocation } from '../../api/agents';
+import { startAgent, stopAgent, deleteAgent, rebuildAgent, getAgentHistory, listCronJobs, pauseAgent, resumeAgent, type Invocation } from '../../api/agents';
 import { ConfirmModal } from '../ConfirmModal';
 import type { CronJob } from '../../types/agent';
 import { useOrchestratorDispatch } from './OrchestratorContext';
@@ -24,6 +25,7 @@ const statusColors: Record<string, string> = {
   starting: 'bg-yellow-400',
   stopping: 'bg-yellow-400',
   stopped: 'bg-red-400',
+  paused: 'bg-amber-400',
   error: 'bg-red-400',
   created: 'bg-[#4a4a5e]',
 };
@@ -33,6 +35,7 @@ const statusLabels: Record<string, string> = {
   starting: 'Starting',
   stopping: 'Stopping',
   stopped: 'Stopped',
+  paused: 'Paused',
   error: 'Error',
   created: 'Created',
 };
@@ -54,7 +57,8 @@ export function AgentInspector({ agent }: { agent: Agent }) {
   const queryClient = useQueryClient();
   const dispatch = useOrchestratorDispatch();
   const isRunning = agent.status === 'running';
-  const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
+  const isPaused = agent.status === 'paused';
+  const isTransitioning = agent.status === 'starting' || agent.status === 'stopping' || agent.status === 'rebuilding';
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
@@ -84,6 +88,16 @@ export function AgentInspector({ agent }: { agent: Agent }) {
 
   const stopMutation = useMutation({
     mutationFn: () => stopAgent(agent.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: () => pauseAgent(agent.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: () => resumeAgent(agent.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
   });
 
@@ -138,28 +152,74 @@ export function AgentInspector({ agent }: { agent: Agent }) {
             <span className="text-[10px] text-[#7a7a8e]">{formatTime(agent.lastActivity)}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => (isRunning ? stopMutation.mutate() : startMutation.mutate())}
-            disabled={isTransitioning || startMutation.isPending || stopMutation.isPending}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-all duration-200 disabled:opacity-50 ${
-              isRunning
-                ? 'text-red-400 border-red-800/50 hover:bg-red-500/10'
-                : 'text-emerald-400 border-emerald-800/50 hover:bg-emerald-500/10'
-            }`}
-          >
-            {(startMutation.isPending || stopMutation.isPending) ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : isRunning ? (
-              <Square className="w-3 h-3" />
-            ) : (
-              <Play className="w-3 h-3" />
-            )}
-            {isRunning ? 'Stop' : 'Start'}
-          </button>
+        {/* Paused state indicator */}
+        {isPaused && (
+          <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+            <p className="text-xs text-amber-400">
+              Agent is paused
+              {agent.pauseReason === 'oauth_expired' && ' - OAuth token expired'}
+              {agent.pausedMessageIds && agent.pausedMessageIds.length > 0 && (
+                <span className="ml-1">({agent.pausedMessageIds.length} message(s) waiting)</span>
+              )}
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Start/Stop button */}
+          {!isPaused && (
+            <button
+              onClick={() => (isRunning ? stopMutation.mutate() : startMutation.mutate())}
+              disabled={isTransitioning || startMutation.isPending || stopMutation.isPending}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-all duration-200 disabled:opacity-50 ${
+                isRunning
+                  ? 'text-red-400 border-red-800/50 hover:bg-red-500/10'
+                  : 'text-emerald-400 border-emerald-800/50 hover:bg-emerald-500/10'
+              }`}
+            >
+              {(startMutation.isPending || stopMutation.isPending) ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : isRunning ? (
+                <Square className="w-3 h-3" />
+              ) : (
+                <Play className="w-3 h-3" />
+              )}
+              {isRunning ? 'Stop' : 'Start'}
+            </button>
+          )}
+          {/* Pause button - visible when running */}
+          {isRunning && (
+            <button
+              onClick={() => pauseMutation.mutate()}
+              disabled={pauseMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400 border border-amber-800/50 hover:bg-amber-500/10 rounded-lg transition-all duration-200 disabled:opacity-50"
+            >
+              {pauseMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Pause className="w-3 h-3" />
+              )}
+              Pause
+            </button>
+          )}
+          {/* Resume button - visible when paused */}
+          {isPaused && (
+            <button
+              onClick={() => resumeMutation.mutate()}
+              disabled={resumeMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-emerald-400 border border-emerald-800/50 hover:bg-emerald-500/10 rounded-lg transition-all duration-200 disabled:opacity-50"
+            >
+              {resumeMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Play className="w-3 h-3" />
+              )}
+              Resume
+            </button>
+          )}
           <button
             onClick={() => setShowRebuildConfirm(true)}
-            disabled={rebuildMutation.isPending || isTransitioning}
+            disabled={rebuildMutation.isPending || isTransitioning || isPaused}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400 border border-amber-800/50 hover:bg-amber-500/10 rounded-lg transition-all duration-200 disabled:opacity-50"
           >
             {rebuildMutation.isPending ? (

@@ -13,6 +13,9 @@ import {
   XCircle,
   Activity,
   Inbox,
+  RefreshCw,
+  ArrowRight,
+  Pause,
 } from 'lucide-react';
 import type { Agent, Team, TeamEvent, TeamEventType, MailMessage } from '../../types/agent';
 import { getTeamEvents } from '../../api/teams';
@@ -29,8 +32,8 @@ function getStatusStyle(agent: Agent): { color: string; animation: string } {
   if (agent.status === 'error') {
     return { color: 'bg-red-500', animation: '' };
   }
-  if (agent.status === 'starting' || agent.status === 'stopping') {
-    return { color: 'bg-yellow-400', animation: 'animate-pulse' };
+  if (agent.status === 'starting' || agent.status === 'stopping' || agent.status === 'rebuilding') {
+    return { color: agent.status === 'rebuilding' ? 'bg-blue-400' : 'bg-yellow-400', animation: 'animate-pulse' };
   }
   if (agent.status === 'running') {
     if (agent.isProcessing) {
@@ -67,6 +70,11 @@ const eventConfig: Record<TeamEventType, {
   processing_started: { icon: Loader2, color: 'text-yellow-400', bgColor: 'bg-yellow-500/10' },
   processing_completed: { icon: CheckCircle, color: 'text-emerald-400', bgColor: 'bg-emerald-500/10' },
   processing_failed: { icon: XCircle, color: 'text-red-400', bgColor: 'bg-red-500/10' },
+  agent_rebuilt: { icon: RefreshCw, color: 'text-blue-400', bgColor: 'bg-blue-500/10' },
+  session_cleared: { icon: Trash2, color: 'text-orange-400', bgColor: 'bg-orange-500/10' },
+  intercom_sent: { icon: ArrowRight, color: 'text-purple-400', bgColor: 'bg-purple-500/10' },
+  agent_paused: { icon: Pause, color: 'text-amber-400', bgColor: 'bg-amber-500/10' },
+  agent_resumed: { icon: Play, color: 'text-emerald-400', bgColor: 'bg-emerald-500/10' },
 };
 
 function formatRelativeTime(timestamp: string): string {

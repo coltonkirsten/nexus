@@ -7,6 +7,7 @@ import { getAgent, updateAgent, listAgents } from './agents.js';
 import { recreateContainer, getContainerStatus, docker } from './docker.js';
 import { getAgentVolumes } from './volumes.js';
 import { deleteMailboxForTeam } from './mailbox.js';
+import { addEventToRun } from './runs.js';
 
 // Simple async mutex (same pattern as agents.ts / volumes.ts)
 let teamLock: Promise<void> = Promise.resolve();
@@ -254,7 +255,12 @@ export async function removeAgentFromTeam(agentId: string): Promise<void> {
 
 // --- Events ---
 
-export async function emitTeamEvent(event: TeamEvent): Promise<void> {
+export async function emitTeamEvent(event: TeamEvent, runId?: string): Promise<void> {
+  // Add runId to event if provided
+  if (runId) {
+    event.runId = runId;
+  }
+
   const log = await loadEventLog(event.teamId);
   log.events.push(event);
 
@@ -264,6 +270,15 @@ export async function emitTeamEvent(event: TeamEvent): Promise<void> {
   }
 
   await saveEventLog(log);
+
+  // Also add event to run if runId is present
+  if (runId) {
+    try {
+      await addEventToRun(event.teamId, runId, event.id);
+    } catch {
+      // Best-effort - run might not exist
+    }
+  }
 }
 
 export async function getTeamEvents(teamId: string, limit?: number): Promise<TeamEvent[]> {

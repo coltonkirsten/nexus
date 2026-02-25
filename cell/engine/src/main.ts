@@ -1,7 +1,7 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { query } from "@anthropic-ai/claude-code";
-import { readFile, readdir, stat, writeFile, unlink, appendFile, mkdir, rm } from "fs/promises";
+import { readFile, readdir, stat, writeFile, unlink, appendFile, mkdir, rm, access, copyFile } from "fs/promises";
 import { join, normalize, extname } from "path";
 import { createNexusMcpServer, updatePeers, getPeers, type PeerAgent } from "./mcp.js";
 import { runCliAgent } from "./cli-runner.js";
@@ -725,6 +725,44 @@ app.get("/logs/stats", (_req: Request, res: Response) => {
   });
 });
 
+// List log archives
+app.get("/logs/archives", async (_req: Request, res: Response) => {
+  try {
+    const archiveDir = '/ledger/logs-archive';
+    try {
+      const files = await readdir(archiveDir);
+      const archives = files
+        .filter(f => f.endsWith('.jsonl'))
+        .sort()
+        .reverse(); // Most recent first
+      res.json({ archives });
+    } catch {
+      // Directory doesn't exist
+      res.json({ archives: [] });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to list archives' });
+  }
+});
+
+// Read a specific log archive
+app.get("/logs/archives/:filename", async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    // Sanitize filename to prevent path traversal
+    if (filename.includes('/') || filename.includes('..')) {
+      res.status(400).json({ error: 'Invalid filename' });
+      return;
+    }
+    const archivePath = `/ledger/logs-archive/${filename}`;
+    const content = await readFile(archivePath, 'utf-8');
+    const archiveLogs = content.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+    res.json({ logs: archiveLogs });
+  } catch {
+    res.status(404).json({ error: 'Archive not found' });
+  }
+});
+
 // Get token usage
 app.get("/tokens", (_req: Request, res: Response) => {
   res.json({
@@ -858,6 +896,46 @@ app.get("/session", async (_req: Request, res: Response) => {
 // Clear session file
 app.post("/session/clear", async (_req: Request, res: Response) => {
   try {
+    // Archive logs before clearing if persistence is enabled
+    let archivedTo: string | null = null;
+    if (LOG_PERSISTENCE_ENABLED) {
+      try {
+        // Create archive directory
+        await mkdir('/ledger/logs-archive', { recursive: true });
+
+        // Generate archive filename with timestamp
+        const archiveTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const archivePath = `/ledger/logs-archive/logs-${archiveTimestamp}.jsonl`;
+
+        // Check if main log file exists before copying
+        try {
+          await access(LOG_PERSISTENCE_PATH);
+          await copyFile(LOG_PERSISTENCE_PATH, archivePath);
+          archivedTo = archivePath;
+        } catch {
+          // No log file to archive, that's fine
+        }
+
+        // Clear the main log file (truncate)
+        await writeFile(LOG_PERSISTENCE_PATH, '');
+
+        // Add the session_cleared event to the fresh log
+        const clearEvent = {
+          timestamp: new Date().toISOString(),
+          type: 'session_cleared',
+          data: {
+            archivedTo: archivePath,
+            previousSessionId: currentSessionId
+          }
+        };
+        await appendFile(LOG_PERSISTENCE_PATH, JSON.stringify(clearEvent) + '\n');
+
+      } catch (archiveError) {
+        // Best-effort archival - log but don't fail the clear
+        console.error('Failed to archive logs:', archiveError);
+      }
+    }
+
     const existed = await clearSessionFile();
     // Clear in-memory logs so SSE replays an empty array on reconnect
     logs.length = 0;
@@ -867,6 +945,7 @@ app.post("/session/clear", async (_req: Request, res: Response) => {
         ? "Session cleared successfully"
         : "No session file existed",
       sessionId: null,
+      archivedTo,
     });
   } catch (error) {
     res.status(500).json({

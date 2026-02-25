@@ -65,6 +65,7 @@ export async function createAgentContainer(config: ContainerConfig): Promise<str
       `ENGINE_PORT=${INTERNAL_PORT}`,
       `NEXUS_API_URL=http://host.docker.internal:${process.env.API_PORT || 3001}`,
       `CELL_MODE=${cellType?.engineMode || 'sdk'}`,
+      `LOG_PERSISTENCE=true`,
       ...(config.teamId ? [`TEAM_ID=${config.teamId}`] : []),
       ...credentialEnvVars,
     ],

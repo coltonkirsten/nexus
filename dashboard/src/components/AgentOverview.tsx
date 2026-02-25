@@ -18,12 +18,13 @@ function AgentCard({ agent }: { agent: Agent }) {
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [deleteVolumesToo, setDeleteVolumesToo] = useState(false);
   const isRunning = agent.status === 'running';
-  const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
+  const isTransitioning = agent.status === 'starting' || agent.status === 'stopping' || agent.status === 'rebuilding';
 
   const statusColors: Record<string, string> = {
     running: 'bg-emerald-400',
     starting: 'bg-yellow-400',
     stopping: 'bg-yellow-400',
+    rebuilding: 'bg-blue-400',
     stopped: 'bg-red-400',
     error: 'bg-red-400',
     created: 'bg-[#4a4a5e]',

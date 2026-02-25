@@ -47,6 +47,10 @@ export interface Agent {
   startedAt?: string;
   restartCount?: number;
   lastCrashTime?: string;
+  // Pause/resume fields
+  pausedAt?: string;
+  pauseReason?: string;
+  pausedMessageIds?: string[];
 }
 
 export interface AgentConfig {
@@ -65,7 +69,7 @@ export interface Message {
   status: MessageStatus;
 }
 
-export type AgentStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
+export type AgentStatus = 'created' | 'starting' | 'running' | 'stopping' | 'stopped' | 'rebuilding' | 'paused' | 'error';
 
 export interface AgentState {
   agents: Agent[];
@@ -116,13 +120,18 @@ export type TeamEventType =
   | 'agent_left'
   | 'agent_started'
   | 'agent_stopped'
+  | 'agent_rebuilt'
   | 'agent_deleted'
+  | 'agent_paused'
+  | 'agent_resumed'
   | 'message_sent'
   | 'mail_sent'
   | 'mail_received'
   | 'processing_started'
   | 'processing_completed'
-  | 'processing_failed';
+  | 'processing_failed'
+  | 'session_cleared'
+  | 'intercom_sent';
 
 export interface TeamEvent {
   id: string;
@@ -132,6 +141,7 @@ export interface TeamEvent {
   agentId: string;
   agentName: string;
   data?: Record<string, unknown>;
+  runId?: string;
 }
 
 export interface TeamEventLog {
@@ -207,4 +217,28 @@ export interface MailMessage {
   timestamp: string;
   replyToId?: string;
   metadata?: Record<string, unknown>;
+}
+
+// --- Unified Run Logging ---
+
+export type RunTriggerSource = 'mail' | 'cron' | 'manual' | 'intercom';
+
+export type RunStatus = 'active' | 'completed' | 'failed';
+
+export interface Run {
+  id: string;
+  teamId: string;
+  triggerSource: RunTriggerSource;
+  triggerAgentId: string;
+  triggerAgentName: string;
+  status: RunStatus;
+  startedAt: string;
+  completedAt?: string;
+  agentIds: string[];
+  eventIds: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface RunState {
+  runs: Run[];
 }

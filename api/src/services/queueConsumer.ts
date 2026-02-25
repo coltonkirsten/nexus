@@ -1,19 +1,22 @@
 import {
-  dequeueMessage,
-  updateMessageStatus,
+  dequeueAllMessages,
+  updateMultipleMessageStatus,
   getAgent,
   listAgents,
+  updateAgent,
 } from './agents.js';
 import { sendMessage } from './engine.js';
 import { emitTeamEvent } from './teams.js';
+import { createRun, completeRun, addAgentToRun } from './runs.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { RuntimeConfig } from '../types.js';
+import type { RuntimeConfig, Message, RunTriggerSource } from '../types.js';
 
 // Per-agent consumer state
 interface AgentConsumer {
   agentId: string;
   isProcessing: boolean;
-  currentMessageId: string | null;
+  currentMessageIds: string[];  // Changed from single ID to array for batch
+  currentRunId: string | null;  // Track current run for event correlation
   retryCount: number;
   sseAbortController: AbortController | null;
   drainTimer: ReturnType<typeof setTimeout> | null;
@@ -47,7 +50,8 @@ export async function startConsumer(agentId: string): Promise<void> {
   const consumer: AgentConsumer = {
     agentId,
     isProcessing: false,
-    currentMessageId: null,
+    currentMessageIds: [],
+    currentRunId: null,
     retryCount: 0,
     sseAbortController: null,
     drainTimer: null,
@@ -85,11 +89,11 @@ export async function stopConsumer(agentId: string): Promise<void> {
     consumer.drainTimer = null;
   }
 
-  // Reset any in-flight message back to pending
-  if (consumer.currentMessageId) {
+  // Reset any in-flight messages back to pending
+  if (consumer.currentMessageIds.length > 0) {
     try {
-      await updateMessageStatus(agentId, consumer.currentMessageId, 'pending');
-      log(agentId, `Reset message ${consumer.currentMessageId.slice(0, 8)} back to pending`);
+      await updateMultipleMessageStatus(agentId, consumer.currentMessageIds, 'pending');
+      log(agentId, `Reset ${consumer.currentMessageIds.length} message(s) back to pending`);
     } catch (err) {
       console.error(`[QueueConsumer] Failed to reset message status:`, err);
     }
@@ -211,6 +215,26 @@ function scheduleSSEReconnect(agentId: string): void {
   }, SSE_RECONNECT_DELAY_MS);
 }
 
+// Detect OAuth/auth errors that should trigger auto-pause
+function isOAuthError(errorData: unknown): boolean {
+  if (!errorData) return false;
+  const errorStr = typeof errorData === 'string' ? errorData : JSON.stringify(errorData);
+  const oauthPatterns = [
+    'oauth',
+    'authentication',
+    'unauthorized',
+    'invalid_grant',
+    'token expired',
+    'refresh token',
+    'access_token',
+    'credentials',
+    '401',
+    'UNAUTHENTICATED',
+  ];
+  const lowerError = errorStr.toLowerCase();
+  return oauthPatterns.some(pattern => lowerError.includes(pattern.toLowerCase()));
+}
+
 async function handleSSEEvent(
   agentId: string,
   entry: { type: string; data: unknown }
@@ -227,14 +251,25 @@ async function handleSSEEvent(
       consumer.drainTimer = null;
     }
 
-    // Mark current message as completed
-    if (consumer.currentMessageId) {
+    // Mark all batch messages as completed
+    if (consumer.currentMessageIds.length > 0) {
       try {
-        await updateMessageStatus(agentId, consumer.currentMessageId, 'completed');
-        log(agentId, `Message ${consumer.currentMessageId.slice(0, 8)} completed`);
+        await updateMultipleMessageStatus(agentId, consumer.currentMessageIds, 'completed');
+        log(agentId, `Batch of ${consumer.currentMessageIds.length} message(s) completed`);
       } catch (err) {
         console.error('[QueueConsumer] Failed to update message status:', err);
       }
+    }
+
+    // Complete the run if one is active
+    const runId = consumer.currentRunId;
+    if (runId) {
+      try {
+        const agent = await getAgent(agentId);
+        if (agent?.teamId) {
+          await completeRun(agent.teamId, runId, 'completed');
+        }
+      } catch { /* best-effort */ }
     }
 
     // Emit team processing_completed event
@@ -248,15 +283,16 @@ async function handleSSEEvent(
           timestamp: new Date().toISOString(),
           agentId,
           agentName: agent.name,
-        });
+        }, runId || undefined);
       }
     } catch { /* best-effort */ }
 
-    consumer.currentMessageId = null;
+    consumer.currentMessageIds = [];
+    consumer.currentRunId = null;
     consumer.isProcessing = false;
     consumer.retryCount = 0;
 
-    // Process next queued message
+    // Process next batch of queued messages
     await tryProcessNext(agentId);
   } else if (entry.type === 'agent_error') {
     log(agentId, 'Received agent_error event');
@@ -267,14 +303,75 @@ async function handleSSEEvent(
       consumer.drainTimer = null;
     }
 
-    // Mark current message as failed
-    if (consumer.currentMessageId) {
+    const runId = consumer.currentRunId;
+
+    // Check if this is an OAuth error that should trigger auto-pause
+    if (isOAuthError(entry.data)) {
+      log(agentId, 'Detected OAuth/auth error, auto-pausing agent');
       try {
-        await updateMessageStatus(agentId, consumer.currentMessageId, 'failed');
-        log(agentId, `Message ${consumer.currentMessageId.slice(0, 8)} failed`);
+        const agent = await getAgent(agentId);
+        if (agent) {
+          // Update agent status to paused
+          await updateAgent(agentId, {
+            status: 'paused',
+            pausedAt: new Date().toISOString(),
+            pauseReason: 'oauth_expired',
+            pausedMessageIds: consumer.currentMessageIds,
+          });
+
+          // Stop the consumer (but don't reset messages to pending - keep them for resume)
+          if (consumer.sseAbortController) {
+            consumer.sseAbortController.abort();
+            consumer.sseAbortController = null;
+          }
+
+          // Emit agent_paused event
+          if (agent.teamId) {
+            await emitTeamEvent({
+              id: uuidv4(),
+              teamId: agent.teamId,
+              type: 'agent_paused',
+              timestamp: new Date().toISOString(),
+              agentId,
+              agentName: agent.name,
+              data: { reason: 'oauth_expired', error: entry.data },
+            }, runId || undefined);
+          }
+
+          // Complete the run as failed
+          if (runId && agent.teamId) {
+            await completeRun(agent.teamId, runId, 'failed');
+          }
+
+          consumer.currentMessageIds = [];
+          consumer.currentRunId = null;
+          consumer.isProcessing = false;
+          consumers.delete(agentId);
+          return;
+        }
+      } catch (err) {
+        console.error('[QueueConsumer] Failed to auto-pause agent:', err);
+      }
+    }
+
+    // Mark all batch messages as failed
+    if (consumer.currentMessageIds.length > 0) {
+      try {
+        await updateMultipleMessageStatus(agentId, consumer.currentMessageIds, 'failed');
+        log(agentId, `Batch of ${consumer.currentMessageIds.length} message(s) failed`);
       } catch (err) {
         console.error('[QueueConsumer] Failed to update message status:', err);
       }
+    }
+
+    // Complete the run as failed
+    if (runId) {
+      try {
+        const agent = await getAgent(agentId);
+        if (agent?.teamId) {
+          await completeRun(agent.teamId, runId, 'failed');
+        }
+      } catch { /* best-effort */ }
     }
 
     // Emit team processing_failed event
@@ -289,21 +386,89 @@ async function handleSSEEvent(
           agentId,
           agentName: agent.name,
           data: { error: entry.data },
-        });
+        }, runId || undefined);
       }
     } catch { /* best-effort */ }
 
-    consumer.currentMessageId = null;
+    consumer.currentMessageIds = [];
+    consumer.currentRunId = null;
     consumer.isProcessing = false;
     consumer.retryCount = 0;
 
-    // Process next queued message
+    // Process next batch of queued messages
     await tryProcessNext(agentId);
   }
 }
 
 /**
- * Try to process the next pending message in the queue.
+ * Format timestamp for display (e.g., "10:32 AM" or "Feb 22, 10:32 AM" if not today)
+ */
+function formatTimestamp(isoTimestamp: string): string {
+  const date = new Date(isoTimestamp);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+
+  const timeStr = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
+
+  if (isToday) {
+    return timeStr;
+  }
+
+  const dateStr = date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric'
+  });
+  return `${dateStr}, ${timeStr}`;
+}
+
+/**
+ * Format a single message with appropriate prefix based on type.
+ */
+function formatMessage(message: Message, index: number, total: number): string {
+  let content = message.content;
+  const timestamp = formatTimestamp(message.timestamp);
+
+  // Add prefix based on message type
+  if (message.role === 'agent' && message.metadata?.fromAgentName) {
+    content = `[Message from agent "${message.metadata.fromAgentName}"]: ${content}`;
+  } else if (message.metadata?.triggerType === 'cron') {
+    content = `[Scheduled task "${message.metadata.cronJobName}"]: ${content}`;
+  } else if (message.metadata?.source === 'mail') {
+    const subject = message.metadata.subject || 'No subject';
+    content = `[Mail - "${subject}"]: ${content}`;
+  }
+
+  // If multiple messages, number them and add timestamp
+  if (total > 1) {
+    return `[${index + 1}/${total}] (${timestamp}) ${content}`;
+  }
+
+  // Single message still gets timestamp
+  return `(${timestamp}) ${content}`;
+}
+
+/**
+ * Detect trigger source from messages metadata
+ */
+function detectTriggerSource(messages: Message[]): RunTriggerSource {
+  // Check the first message for trigger hints
+  const firstMessage = messages[0];
+  if (!firstMessage) return 'manual';
+
+  const metadata = firstMessage.metadata;
+  if (metadata?.source === 'mail') return 'mail';
+  if (metadata?.triggerType === 'cron') return 'cron';
+  if (firstMessage.role === 'agent' && metadata?.fromAgentId) return 'intercom';
+
+  return 'manual';
+}
+
+/**
+ * Try to process all pending messages in the queue as a batch.
  * If already processing, this is a no-op (the SSE listener handles dispatch).
  */
 export async function tryProcessNext(agentId: string): Promise<void> {
@@ -313,57 +478,64 @@ export async function tryProcessNext(agentId: string): Promise<void> {
   // Already processing — SSE will trigger next dispatch
   if (consumer.isProcessing) return;
 
-  // Dequeue next pending message
-  const message = await dequeueMessage(agentId);
-  if (!message) return; // Nothing in queue
+  // Dequeue ALL pending messages at once
+  const messages = await dequeueAllMessages(agentId);
+  if (messages.length === 0) return; // Nothing in queue
 
   consumer.isProcessing = true;
-  consumer.currentMessageId = message.id;
+  consumer.currentMessageIds = messages.map(m => m.id);
   consumer.retryCount = 0;
-
-  // Prefix inter-agent messages with sender info
-  let content = message.content;
-  if (message.role === 'agent' && message.metadata?.fromAgentName) {
-    content = `[Message from agent "${message.metadata.fromAgentName}"]: ${content}`;
-  }
-  if (message.metadata?.triggerType === 'cron') {
-    content = `[Scheduled task "${message.metadata.cronJobName}"]: ${content}`;
-  }
-
-  log(agentId, `Dispatching message ${message.id.slice(0, 8)}: "${content.slice(0, 50)}..."`);
 
   // Get agent config for sendMessage
   const agent = await getAgent(agentId);
   if (!agent) {
-    log(agentId, 'Agent not found, marking message failed');
-    await updateMessageStatus(agentId, message.id, 'failed');
+    log(agentId, 'Agent not found, marking batch failed');
+    await updateMultipleMessageStatus(agentId, consumer.currentMessageIds, 'failed');
     consumer.isProcessing = false;
-    consumer.currentMessageId = null;
+    consumer.currentMessageIds = [];
     return;
   }
 
-  await dispatchMessage(agentId, message.id, content, agent.config);
+  // Format all messages into a combined payload
+  const formattedMessages = messages.map((msg, idx) => formatMessage(msg, idx, messages.length));
 
-  // Emit team processing_started event
-  if (agent.teamId) {
-    try {
-      await emitTeamEvent({
-        id: uuidv4(),
-        teamId: agent.teamId,
-        type: 'processing_started',
-        timestamp: new Date().toISOString(),
-        agentId,
-        agentName: agent.name,
-      });
-    } catch { /* best-effort */ }
+  let combinedContent: string;
+  if (messages.length === 1) {
+    combinedContent = formattedMessages[0];
+  } else {
+    // Multiple messages - create clear batch format
+    combinedContent = `You have ${messages.length} messages in your queue:\n\n${formattedMessages.join('\n\n')}`;
   }
+
+  log(agentId, `Dispatching batch of ${messages.length} message(s): "${combinedContent.slice(0, 80)}..."`);
+
+  // Detect trigger source for potential run creation
+  const triggerSource = detectTriggerSource(messages);
+  const firstMessageId = messages[0]?.id;
+
+  await dispatchBatch(agentId, consumer.currentMessageIds, combinedContent, agent.config, {
+    teamId: agent.teamId,
+    agentName: agent.name,
+    triggerSource,
+    firstMessageId,
+    messageCount: messages.length,
+  });
 }
 
-async function dispatchMessage(
+interface DispatchRunMeta {
+  teamId?: string;
+  agentName: string;
+  triggerSource: RunTriggerSource;
+  firstMessageId?: string;
+  messageCount: number;
+}
+
+async function dispatchBatch(
   agentId: string,
-  messageId: string,
+  messageIds: string[],
   content: string,
-  config?: RuntimeConfig
+  config: RuntimeConfig | undefined,
+  runMeta: DispatchRunMeta
 ): Promise<void> {
   const consumer = consumers.get(agentId);
   if (!consumer) return;
@@ -374,7 +546,38 @@ async function dispatchMessage(
   });
 
   if (result.success) {
-    log(agentId, `Message ${messageId.slice(0, 8)} dispatched to engine`);
+    log(agentId, `Batch of ${messageIds.length} message(s) dispatched to engine`);
+
+    // NOW create the run - only after successful dispatch
+    if (runMeta.teamId) {
+      try {
+        const run = await createRun({
+          teamId: runMeta.teamId,
+          triggerSource: runMeta.triggerSource,
+          triggerAgentId: agentId,
+          triggerAgentName: runMeta.agentName,
+          metadata: {
+            messageCount: runMeta.messageCount,
+            firstMessageId: runMeta.firstMessageId,
+          },
+        });
+        consumer.currentRunId = run.id;
+        log(agentId, `Created run ${run.id} with trigger source: ${runMeta.triggerSource}`);
+
+        // Emit team processing_started event
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: runMeta.teamId,
+          type: 'processing_started',
+          timestamp: new Date().toISOString(),
+          agentId,
+          agentName: runMeta.agentName,
+          data: { messageCount: runMeta.messageCount },
+        }, run.id);
+      } catch (err) {
+        console.error('[QueueConsumer] Failed to create run:', err);
+      }
+    }
 
     // Set safety drain timer in case SSE misses completion
     if (consumer.drainTimer) {
@@ -382,14 +585,14 @@ async function dispatchMessage(
     }
     consumer.drainTimer = setTimeout(async () => {
       const c = consumers.get(agentId);
-      if (c && c.isProcessing && c.currentMessageId === messageId) {
-        log(agentId, `Drain timer fired for message ${messageId.slice(0, 8)}, forcing next`);
+      if (c && c.isProcessing && c.currentMessageIds.length > 0) {
+        log(agentId, `Drain timer fired for batch of ${c.currentMessageIds.length} message(s), forcing next`);
         // Assume it completed (engine may have sent the event and we missed it)
         try {
-          await updateMessageStatus(agentId, messageId, 'completed');
+          await updateMultipleMessageStatus(agentId, c.currentMessageIds, 'completed');
         } catch { /* best-effort */ }
         c.isProcessing = false;
-        c.currentMessageId = null;
+        c.currentMessageIds = [];
         c.retryCount = 0;
         await tryProcessNext(agentId);
       }
@@ -399,12 +602,16 @@ async function dispatchMessage(
   }
 
   // Handle 409 — agent is busy (race condition, task still running)
+  // NOTE: No run was created yet (run is only created on successful dispatch)
+  // so we just requeue and wait for retry - no "failed" run to record
   if (result.errorType === 'agent_busy') {
-    log(agentId, `Agent busy (409), requeueing message ${messageId.slice(0, 8)}`);
-    // Requeue: set back to pending
-    await updateMessageStatus(agentId, messageId, 'pending');
+    log(agentId, `Agent busy (409), requeueing batch of ${messageIds.length} message(s)`);
+    // Requeue: set all back to pending
+    await updateMultipleMessageStatus(agentId, messageIds, 'pending');
+
     consumer.isProcessing = false;
-    consumer.currentMessageId = null;
+    consumer.currentMessageIds = [];
+    consumer.currentRunId = null;
 
     // Retry after delay — the SSE listener should eventually pick up the completion
     setTimeout(async () => {
@@ -423,20 +630,45 @@ async function dispatchMessage(
 
     setTimeout(async () => {
       if (consumers.has(agentId)) {
-        await dispatchMessage(agentId, messageId, content, config);
+        await dispatchBatch(agentId, messageIds, content, config, runMeta);
       }
     }, delay);
     return;
   }
 
-  // Non-recoverable or max retries exceeded — mark failed, try next
-  log(agentId, `Message ${messageId.slice(0, 8)} failed permanently: ${result.error}`);
-  await updateMessageStatus(agentId, messageId, 'failed');
+  // Non-recoverable or max retries exceeded — mark all failed, try next batch
+  log(agentId, `Batch of ${messageIds.length} message(s) failed permanently: ${result.error}`);
+  await updateMultipleMessageStatus(agentId, messageIds, 'failed');
+
+  // Complete the run as failed
+  const runId = consumer.currentRunId;
+  if (runId) {
+    try {
+      const agent = await getAgent(agentId);
+      if (agent?.teamId) {
+        await completeRun(agent.teamId, runId, 'failed');
+        log(agentId, `Completed run ${runId} as failed (dispatch error)`);
+
+        // Emit processing_failed event
+        await emitTeamEvent({
+          id: uuidv4(),
+          teamId: agent.teamId,
+          type: 'processing_failed',
+          timestamp: new Date().toISOString(),
+          agentId,
+          agentName: agent.name,
+          data: { error: result.error },
+        }, runId);
+      }
+    } catch { /* best-effort */ }
+  }
+
   consumer.isProcessing = false;
-  consumer.currentMessageId = null;
+  consumer.currentMessageIds = [];
+  consumer.currentRunId = null;
   consumer.retryCount = 0;
 
-  // Try next message
+  // Try next batch
   await tryProcessNext(agentId);
 }
 

@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Loader2,
   X,
+  Menu,
 } from 'lucide-react';
 import type { Volume, VolumeType } from '../types/agent';
 import { listVolumes, createVolume, deleteVolume, cloneVolume } from '../api/volumes';
@@ -47,8 +48,8 @@ function CreateVolumeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e3a]">
+      <div className="relative w-full max-w-md mx-4 md:mx-0 bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#1e1e3a]">
           <h3 className="text-sm font-semibold text-[#e0e0e8]">Create Volume</h3>
           <button onClick={onClose} className="p-1 text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200">
             <X className="w-4 h-4" />
@@ -138,8 +139,8 @@ function CloneVolumeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e3a]">
+      <div className="relative w-full max-w-md mx-4 md:mx-0 bg-[#12121a] rounded-2xl shadow-2xl border border-[#1e1e3a]">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-[#1e1e3a]">
           <h3 className="text-sm font-semibold text-[#e0e0e8]">Clone "{sourceVolume.name}"</h3>
           <button onClick={onClose} className="p-1 text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200">
             <X className="w-4 h-4" />
@@ -212,7 +213,7 @@ function VolumeCard({ volume, agentName }: { volume: Volume; agentName?: string 
   };
 
   return (
-    <div className="group bg-[#12121a] border border-[#1e1e3a] rounded-2xl p-6 transition-all duration-200 hover:border-[#2a2a4a]">
+    <div className="group bg-[#12121a] border border-[#1e1e3a] rounded-2xl p-4 md:p-6 transition-all duration-200 hover:border-[#2a2a4a]">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -292,6 +293,7 @@ function VolumeCard({ volume, agentName }: { volume: Volume; agentName?: string 
 export function VolumesPage() {
   const [filter, setFilter] = useState<FilterTab>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { data: volumes = [], isLoading, error } = useQuery({
     queryKey: ['volumes'],
@@ -319,24 +321,31 @@ export function VolumesPage() {
     <div className="min-h-screen bg-[#0a0a0f]">
       {/* Header */}
       <header className="border-b border-[#1e1e3a]">
-        <div className="max-w-7xl mx-auto px-8 py-6 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 md:py-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Cpu className="w-7 h-7 text-indigo-400" />
+            {/* Mobile menu button */}
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="md:hidden p-1.5 text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <Cpu className="w-6 md:w-7 h-6 md:h-7 text-indigo-400" />
             <div>
-              <h1 className="text-xl font-bold text-[#e0e0e8] tracking-tight">NEXUS</h1>
-              <p className="text-[10px] text-[#4a4a5e] tracking-wide uppercase">Agent Control System</p>
+              <h1 className="text-lg md:text-xl font-bold text-[#e0e0e8] tracking-tight">NEXUS</h1>
+              <p className="text-[9px] md:text-[10px] text-[#4a4a5e] tracking-wide uppercase hidden sm:block">Agent Control System</p>
             </div>
           </div>
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200"
+            className="flex items-center gap-2 px-3 md:px-4 py-2 md:py-2.5 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-200"
           >
             <Plus className="w-4 h-4" />
-            Create Volume
+            <span className="hidden sm:inline">Create Volume</span>
           </button>
         </div>
-        {/* Nav tabs */}
-        <div className="max-w-7xl mx-auto px-8">
+        {/* Nav tabs - hidden on mobile */}
+        <div className="max-w-7xl mx-auto px-4 md:px-8 hidden md:block">
           <nav className="flex gap-6">
             <NavLink
               to="/"
@@ -390,7 +399,74 @@ export function VolumesPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-8 py-8">
+      {/* Mobile nav overlay */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-[#0a0a0f] border-r border-[#1e1e3a] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e3a]">
+              <div className="flex items-center gap-2">
+                <Cpu className="w-5 h-5 text-indigo-400" />
+                <span className="text-sm font-semibold text-[#e0e0e8]">NEXUS</span>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1.5 text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <nav className="p-4 space-y-1">
+              <NavLink
+                to="/"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `block px-3 py-2.5 text-sm rounded-lg transition-all duration-200 ${
+                    isActive ? 'text-indigo-400 bg-indigo-500/10' : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
+                  }`
+                }
+              >
+                Orchestrator
+              </NavLink>
+              <NavLink
+                to="/teams"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `block px-3 py-2.5 text-sm rounded-lg transition-all duration-200 ${
+                    isActive ? 'text-indigo-400 bg-indigo-500/10' : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
+                  }`
+                }
+              >
+                Teams
+              </NavLink>
+              <NavLink
+                to="/volumes"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `block px-3 py-2.5 text-sm rounded-lg transition-all duration-200 ${
+                    isActive ? 'text-indigo-400 bg-indigo-500/10' : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
+                  }`
+                }
+              >
+                Volumes
+              </NavLink>
+              <NavLink
+                to="/settings"
+                onClick={() => setMobileMenuOpen(false)}
+                className={({ isActive }) =>
+                  `block px-3 py-2.5 text-sm rounded-lg transition-all duration-200 ${
+                    isActive ? 'text-indigo-400 bg-indigo-500/10' : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
+                  }`
+                }
+              >
+                Settings
+              </NavLink>
+            </nav>
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-8">
         {/* Filter tabs */}
         <div className="flex items-center gap-2 mb-6">
           {tabs.map((tab) => (
@@ -438,7 +514,7 @@ export function VolumesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
             {filteredVolumes.map((volume) => (
               <VolumeCard
                 key={volume.id}

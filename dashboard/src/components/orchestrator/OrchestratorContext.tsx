@@ -13,8 +13,10 @@ export interface OrchestratorState {
   tabs: Tab[];
   activeTabId: string | null;
   inspectorCollapsed: boolean;
+  navigatorCollapsed: boolean;
   selectedEntityId: string | null;
   selectedEntityType: TabType | null;
+  mobileNavOpen: boolean;
 }
 
 type Action =
@@ -22,9 +24,11 @@ type Action =
   | { type: 'CLOSE_TAB'; payload: { tabId: string } }
   | { type: 'SET_ACTIVE_TAB'; payload: { tabId: string | null } }
   | { type: 'TOGGLE_INSPECTOR' }
+  | { type: 'TOGGLE_NAVIGATOR' }
   | { type: 'SELECT_ENTITY'; payload: { entityId: string; entityType: TabType } }
   | { type: 'UPDATE_TAB_LABEL'; payload: { tabId: string; label: string } }
-  | { type: 'CLOSE_TAB_BY_ENTITY'; payload: { entityId: string } };
+  | { type: 'CLOSE_TAB_BY_ENTITY'; payload: { entityId: string } }
+  | { type: 'SET_MOBILE_NAV'; payload: { open: boolean } };
 
 function makeTabId(tabType: TabType, entityId: string): string {
   return `${tabType}-${entityId}`;
@@ -86,6 +90,8 @@ function reducer(state: OrchestratorState, action: Action): OrchestratorState {
     }
     case 'TOGGLE_INSPECTOR':
       return { ...state, inspectorCollapsed: !state.inspectorCollapsed };
+    case 'TOGGLE_NAVIGATOR':
+      return { ...state, navigatorCollapsed: !state.navigatorCollapsed };
     case 'SELECT_ENTITY':
       return {
         ...state,
@@ -105,6 +111,8 @@ function reducer(state: OrchestratorState, action: Action): OrchestratorState {
       if (!tab) return state;
       return reducer(state, { type: 'CLOSE_TAB', payload: { tabId: tab.id } });
     }
+    case 'SET_MOBILE_NAV':
+      return { ...state, mobileNavOpen: action.payload.open };
     default:
       return state;
   }
@@ -114,8 +122,10 @@ const initialState: OrchestratorState = {
   tabs: [],
   activeTabId: null,
   inspectorCollapsed: false,
+  navigatorCollapsed: false,
   selectedEntityId: null,
   selectedEntityType: null,
+  mobileNavOpen: false,
 };
 
 const OrchestratorContext = createContext<OrchestratorState>(initialState);

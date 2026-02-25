@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { Team, TeamEvent } from '../types/agent';
+import type { Team, TeamEvent, Run, TimelineData } from '../types/agent';
 import type { FileEntry } from './agents';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -76,4 +76,28 @@ export async function getTeamSharedFile(teamId: string, path: string): Promise<{
 export async function getAgentRawLogs(agentId: string): Promise<Array<{ type: string; data: unknown; timestamp: string }>> {
   const response = await api.get<Array<{ type: string; data: unknown; timestamp: string }>>(`/api/agents/${agentId}/logs/raw`);
   return response.data;
+}
+
+// Timeline and Runs API
+
+export async function getTeamTimeline(
+  teamId: string,
+  start: string,
+  end: string,
+  groupByRun = true
+): Promise<TimelineData> {
+  const params = new URLSearchParams({
+    start,
+    end,
+    groupByRun: String(groupByRun),
+  });
+  const response = await api.get<TimelineData>(`/api/teams/${teamId}/timeline?${params}`);
+  return response.data;
+}
+
+export async function getTeamRuns(teamId: string, limit = 20): Promise<Run[]> {
+  const response = await api.get<{ runs: Run[] }>(`/api/teams/${teamId}/runs`, {
+    params: { limit: String(limit) },
+  });
+  return response.data.runs;
 }
