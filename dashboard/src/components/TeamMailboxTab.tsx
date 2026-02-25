@@ -5,6 +5,7 @@ import {
   Send,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowLeft,
   CheckCheck,
   PenSquare,
   X,
@@ -125,6 +126,9 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
   const [composing, setComposing] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<MailMessage | null>(null);
 
+  // Mobile responsiveness: track if we're showing detail view on mobile
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
+
   // Compose form state
   const [composeAgentId, setComposeAgentId] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
@@ -211,6 +215,7 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
     setSelectedThreadId(thread.id);
     setComposing(false);
     setReplyToMessage(null);
+    setMobileShowDetail(true);
   };
 
   const handleCompose = () => {
@@ -220,6 +225,14 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
     setComposeAgentId('');
     setComposeSubject('');
     setComposeBody('');
+    setMobileShowDetail(true);
+  };
+
+  const handleMobileBack = () => {
+    setMobileShowDetail(false);
+    setSelectedThreadId(null);
+    setComposing(false);
+    setReplyToMessage(null);
   };
 
   const handleReply = (msg: MailMessage) => {
@@ -244,15 +257,15 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[#1e1e3a] shrink-0">
-        <div className="flex items-center gap-3">
+      {/* Top bar - hidden on mobile when showing detail view */}
+      <div className={`flex items-center justify-between px-4 md:px-6 py-3 border-b border-[#1e1e3a] shrink-0 ${mobileShowDetail ? 'hidden md:flex' : 'flex'}`}>
+        <div className="flex items-center gap-2 md:gap-3">
           {/* Filter pills */}
           {(['all', 'inbox', 'sent'] as FilterMode[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1 text-xs rounded-full transition-all duration-200 ${
+              className={`px-2 md:px-3 py-1 text-xs rounded-full transition-all duration-200 ${
                 filter === f
                   ? 'bg-indigo-500/20 text-indigo-400'
                   : 'text-[#4a4a5e] hover:text-[#7a7a8e] hover:bg-[#1a1a2e]'
@@ -260,7 +273,7 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
             >
               {f.charAt(0).toUpperCase() + f.slice(1)}
               {f === 'inbox' && unreadCount > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-indigo-500 text-white rounded-full">
+                <span className="ml-1 md:ml-1.5 px-1.5 py-0.5 text-[10px] bg-indigo-500 text-white rounded-full">
                   {unreadCount}
                 </span>
               )}
@@ -272,7 +285,7 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
             <button
               onClick={() => markAllReadMutation.mutate()}
               disabled={markAllReadMutation.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
             >
               <CheckCheck className="w-3.5 h-3.5" />
               Mark All Read
@@ -283,15 +296,15 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition-all duration-200"
           >
             <PenSquare className="w-3.5 h-3.5" />
-            Compose
+            <span className="hidden sm:inline">Compose</span>
           </button>
         </div>
       </div>
 
       {/* Split pane */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Thread list */}
-        <div className="w-80 border-r border-[#1e1e3a] overflow-auto shrink-0">
+        {/* Left: Thread list - hidden on mobile when showing detail */}
+        <div className={`w-full md:w-80 border-r border-[#1e1e3a] overflow-auto md:shrink-0 ${mobileShowDetail ? 'hidden md:block' : 'block'}`}>
           {threads.length === 0 ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
@@ -368,17 +381,26 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
           )}
         </div>
 
-        {/* Right: Thread detail or compose */}
-        <div className="flex-1 overflow-auto">
+        {/* Right: Thread detail or compose - hidden on mobile when showing list */}
+        <div className={`flex-1 overflow-auto ${mobileShowDetail ? 'block' : 'hidden md:block'}`}>
           {composing ? (
             /* Compose form */
-            <div className="p-6 max-w-2xl">
+            <div className="p-4 md:p-6 max-w-2xl">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-sm font-semibold text-[#e0e0e8]">
-                  {replyToMessage ? `Reply to: ${normalizeSubject(replyToMessage.subject)}` : 'New Message'}
-                </h3>
+                <div className="flex items-center gap-3">
+                  {/* Mobile back button */}
+                  <button
+                    onClick={handleMobileBack}
+                    className="md:hidden p-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <h3 className="text-sm font-semibold text-[#e0e0e8]">
+                    {replyToMessage ? `Reply to: ${normalizeSubject(replyToMessage.subject)}` : 'New Message'}
+                  </h3>
+                </div>
                 <button
-                  onClick={() => { setComposing(false); setReplyToMessage(null); }}
+                  onClick={() => { setComposing(false); setReplyToMessage(null); setMobileShowDetail(false); }}
                   className="p-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
                 >
                   <X className="w-4 h-4" />
@@ -448,11 +470,20 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
             </div>
           ) : selectedThread ? (
             /* Thread detail view */
-            <div className="p-6 max-w-2xl">
+            <div className="p-4 md:p-6 max-w-2xl">
               {/* Thread header */}
               <div className="mb-6 pb-4 border-b border-[#1e1e3a]">
-                <h3 className="text-base font-semibold text-[#e0e0e8] mb-2">{selectedThread.rootSubject}</h3>
-                <div className="flex items-center gap-3 text-xs text-[#4a4a5e]">
+                <div className="flex items-center gap-3 mb-2">
+                  {/* Mobile back button */}
+                  <button
+                    onClick={handleMobileBack}
+                    className="md:hidden p-1.5 -ml-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <h3 className="text-base font-semibold text-[#e0e0e8]">{selectedThread.rootSubject}</h3>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-[#4a4a5e] md:ml-0 ml-7">
                   <span>{selectedThread.messages.length} message{selectedThread.messages.length !== 1 ? 's' : ''}</span>
                   <span>•</span>
                   <span>with {selectedThread.participantAgents.join(', ')}</span>
