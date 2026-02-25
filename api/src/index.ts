@@ -32,7 +32,8 @@ import { handleTerminalConnection } from './services/terminal.js';
 import { initScheduler } from './services/cronScheduler.js';
 import { migrateFromEnv } from './services/credentials.js';
 import { startHealthCheckLoop } from './services/healthCheck.js';
-import { startOAuthSyncLoop } from './services/oauthSync.js';
+// OAuth sync disabled - using long-lived setup tokens instead
+// import { startOAuthSyncLoop } from './services/oauthSync.js';
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -93,9 +94,11 @@ async function initialize(): Promise<void> {
     // Restart queue consumers for any agents that are still running
     await restartConsumersForRunningAgents();
 
-    // Start OAuth token sync loop (checks macOS keychain for fresh tokens)
-    console.log('[Startup] Starting OAuth sync loop...');
-    startOAuthSyncLoop();
+    // OAuth sync disabled - using long-lived setup tokens instead of short-lived OAuth
+    // The setup token (generated via `claude setup-token`) lasts 1 year and doesn't
+    // have the refresh token race condition that caused multi-agent auth failures.
+    // console.log('[Startup] Starting OAuth sync loop...');
+    // startOAuthSyncLoop();
   } catch (error) {
     console.error('[Startup] Error during initialization:', error);
   }
