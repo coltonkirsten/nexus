@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Mail,
@@ -8,7 +8,10 @@ import {
   CheckCheck,
   PenSquare,
   X,
-  Tag,
+  MessageSquare,
+  ChevronDown,
+  ChevronRight,
+  Reply,
 } from 'lucide-react';
 import type { MailMessage } from '../types/agent';
 import {
@@ -25,6 +28,16 @@ interface TeamMailboxTabProps {
 }
 
 type FilterMode = 'all' | 'inbox' | 'sent';
+
+// A thread is a group of messages linked by replyToId
+interface Thread {
+  id: string; // ID of the root message
+  rootSubject: string; // Original subject (without Re: prefixes)
+  messages: MailMessage[]; // All messages in thread, sorted by timestamp
+  latestMessage: MailMessage; // Most recent message
+  hasUnread: boolean; // Any unread messages in thread
+  participantAgents: string[]; // Unique agent names involved
+}
 
 const categoryColors: Record<string, { text: string; bg: string }> = {
   question: { text: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -49,10 +62,66 @@ function formatRelativeTime(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// Strip "Re: " prefixes to get the root subject
+function normalizeSubject(subject: string): string {
+  return subject.replace(/^(Re:\s*)+/i, '').trim();
+}
+
+// Build threads from flat message list
+function buildThreads(messages: MailMessage[]): Thread[] {
+  // Map each message by ID for quick lookup
+  const byId = new Map(messages.map((m) => [m.id, m]));
+
+  // Find the root of each message's thread
+  function findRoot(msg: MailMessage): MailMessage {
+    let current = msg;
+    while (current.replyToId && byId.has(current.replyToId)) {
+      current = byId.get(current.replyToId)!;
+    }
+    return current;
+  }
+
+  // Group messages by their root
+  const threadMap = new Map<string, MailMessage[]>();
+  for (const msg of messages) {
+    const root = findRoot(msg);
+    const list = threadMap.get(root.id) || [];
+    list.push(msg);
+    threadMap.set(root.id, list);
+  }
+
+  // Build Thread objects
+  const threads: Thread[] = [];
+  for (const [rootId, threadMessages] of threadMap.entries()) {
+    // Sort by timestamp ascending
+    threadMessages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const rootMsg = byId.get(rootId)!;
+    const latestMsg = threadMessages[threadMessages.length - 1];
+    const hasUnread = threadMessages.some((m) => m.direction === 'agent_to_human' && !m.read);
+    const agents = [...new Set(threadMessages.map((m) => m.agentName))];
+
+    threads.push({
+      id: rootId,
+      rootSubject: normalizeSubject(rootMsg.subject),
+      messages: threadMessages,
+      latestMessage: latestMsg,
+      hasUnread,
+      participantAgents: agents,
+    });
+  }
+
+  // Sort threads by latest message timestamp descending
+  threads.sort((a, b) => new Date(b.latestMessage.timestamp).getTime() - new Date(a.latestMessage.timestamp).getTime());
+
+  return threads;
+}
+
 export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<FilterMode>('all');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<MailMessage | null>(null);
 
@@ -103,39 +172,50 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
     },
   });
 
-  // Filter messages
-  const filtered = messages.filter((m) => {
-    if (filter === 'inbox') return m.direction === 'agent_to_human';
-    if (filter === 'sent') return m.direction === 'human_to_agent';
-    return true;
-  });
+  // Filter messages first
+  const filtered = useMemo(() => {
+    return messages.filter((m) => {
+      if (filter === 'inbox') return m.direction === 'agent_to_human';
+      if (filter === 'sent') return m.direction === 'human_to_agent';
+      return true;
+    });
+  }, [messages, filter]);
 
-  // Newest first
-  const sorted = [...filtered].reverse();
+  // Build threads from filtered messages
+  const threads = useMemo(() => buildThreads(filtered), [filtered]);
 
-  const selectedMessage = messages.find((m) => m.id === selectedId) || null;
+  const selectedThread = threads.find((t) => t.id === selectedThreadId) || null;
 
   const unreadCount = messages.filter(
     (m) => m.direction === 'agent_to_human' && !m.read
   ).length;
 
-  // Auto-mark as read when selecting
+  // Auto-expand latest message when selecting a thread
   useEffect(() => {
-    if (selectedMessage && !selectedMessage.read && selectedMessage.direction === 'agent_to_human') {
-      markReadMutation.mutate(selectedMessage.id);
+    if (selectedThread) {
+      setExpandedMessageId(selectedThread.latestMessage.id);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only fire when selectedId changes
-  }, [selectedId, selectedMessage?.read, selectedMessage?.direction]);
+  }, [selectedThreadId]);
 
-  const handleSelectMessage = (msg: MailMessage) => {
-    setSelectedId(msg.id);
+  // Mark message as read when expanded
+  useEffect(() => {
+    if (expandedMessageId) {
+      const msg = messages.find((m) => m.id === expandedMessageId);
+      if (msg && !msg.read && msg.direction === 'agent_to_human') {
+        markReadMutation.mutate(msg.id);
+      }
+    }
+  }, [expandedMessageId]);
+
+  const handleSelectThread = (thread: Thread) => {
+    setSelectedThreadId(thread.id);
     setComposing(false);
     setReplyToMessage(null);
   };
 
   const handleCompose = () => {
     setComposing(true);
-    setSelectedId(null);
+    setSelectedThreadId(null);
     setReplyToMessage(null);
     setComposeAgentId('');
     setComposeSubject('');
@@ -146,7 +226,9 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
     setComposing(true);
     setReplyToMessage(msg);
     setComposeAgentId(msg.agentId);
-    setComposeSubject(`Re: ${msg.subject}`);
+    // Keep subject chain for threading
+    const subject = msg.subject.toLowerCase().startsWith('re:') ? msg.subject : `Re: ${msg.subject}`;
+    setComposeSubject(subject);
     setComposeBody('');
   };
 
@@ -208,9 +290,9 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
 
       {/* Split pane */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Message list */}
+        {/* Left: Thread list */}
         <div className="w-80 border-r border-[#1e1e3a] overflow-auto shrink-0">
-          {sorted.length === 0 ? (
+          {threads.length === 0 ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
                 <Mail className="w-10 h-10 mx-auto mb-3 text-[#1e1e3a]" />
@@ -219,13 +301,15 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
             </div>
           ) : (
             <div className="divide-y divide-[#1e1e3a]/50">
-              {sorted.map((msg) => {
-                const isSelected = selectedId === msg.id;
-                const isUnread = msg.direction === 'agent_to_human' && !msg.read;
+              {threads.map((thread) => {
+                const isSelected = selectedThreadId === thread.id;
+                const messageCount = thread.messages.length;
+                const latestDir = thread.latestMessage.direction;
+
                 return (
                   <button
-                    key={msg.id}
-                    onClick={() => handleSelectMessage(msg)}
+                    key={thread.id}
+                    onClick={() => handleSelectThread(thread)}
                     className={`w-full text-left px-4 py-3 transition-all duration-200 ${
                       isSelected
                         ? 'bg-indigo-500/10 border-l-2 border-indigo-400'
@@ -235,14 +319,14 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
                     <div className="flex items-start gap-2.5">
                       {/* Unread dot */}
                       <div className="pt-1.5 w-2 shrink-0">
-                        {isUnread && (
+                        {thread.hasUnread && (
                           <div className="w-2 h-2 rounded-full bg-indigo-400" />
                         )}
                       </div>
 
-                      {/* Direction icon */}
+                      {/* Direction icon (for latest message) */}
                       <div className="pt-0.5 shrink-0">
-                        {msg.direction === 'agent_to_human' ? (
+                        {latestDir === 'agent_to_human' ? (
                           <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
                         ) : (
                           <ArrowUpRight className="w-3.5 h-3.5 text-blue-400" />
@@ -253,20 +337,28 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-xs text-[#7a7a8e] truncate">
-                            {msg.agentName}
+                            {thread.participantAgents.join(', ')}
                           </span>
                           <span className="text-[10px] text-[#4a4a5e] shrink-0">
-                            {formatRelativeTime(msg.timestamp)}
+                            {formatRelativeTime(thread.latestMessage.timestamp)}
                           </span>
                         </div>
-                        <p className={`text-sm truncate ${isUnread ? 'text-[#e0e0e8] font-medium' : 'text-[#7a7a8e]'}`}>
-                          {msg.subject}
+                        <p className={`text-sm truncate ${thread.hasUnread ? 'text-[#e0e0e8] font-medium' : 'text-[#7a7a8e]'}`}>
+                          {thread.rootSubject}
                         </p>
-                        {msg.category && (
-                          <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded ${categoryColors[msg.category]?.bg || ''} ${categoryColors[msg.category]?.text || ''}`}>
-                            {msg.category}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          {messageCount > 1 && (
+                            <span className="flex items-center gap-1 text-[10px] text-[#4a4a5e] bg-[#1a1a2e] rounded px-1.5 py-0.5">
+                              <MessageSquare className="w-2.5 h-2.5" />
+                              {messageCount}
+                            </span>
+                          )}
+                          {thread.latestMessage.category && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${categoryColors[thread.latestMessage.category]?.bg || ''} ${categoryColors[thread.latestMessage.category]?.text || ''}`}>
+                              {thread.latestMessage.category}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </button>
@@ -276,14 +368,14 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
           )}
         </div>
 
-        {/* Right: Detail or compose */}
+        {/* Right: Thread detail or compose */}
         <div className="flex-1 overflow-auto">
           {composing ? (
             /* Compose form */
             <div className="p-6 max-w-2xl">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-sm font-semibold text-[#e0e0e8]">
-                  {replyToMessage ? `Reply to: ${replyToMessage.subject}` : 'New Message'}
+                  {replyToMessage ? `Reply to: ${normalizeSubject(replyToMessage.subject)}` : 'New Message'}
                 </h3>
                 <button
                   onClick={() => { setComposing(false); setReplyToMessage(null); }}
@@ -354,58 +446,112 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
                 </div>
               </div>
             </div>
-          ) : selectedMessage ? (
-            /* Message detail */
+          ) : selectedThread ? (
+            /* Thread detail view */
             <div className="p-6 max-w-2xl">
-              {/* Header */}
-              <div className="mb-6">
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-base font-semibold text-[#e0e0e8]">{selectedMessage.subject}</h3>
-                  {selectedMessage.category && (
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${categoryColors[selectedMessage.category]?.bg || ''} ${categoryColors[selectedMessage.category]?.text || ''}`}>
-                      <Tag className="w-2.5 h-2.5 inline mr-1" />
-                      {selectedMessage.category}
-                    </span>
-                  )}
-                </div>
+              {/* Thread header */}
+              <div className="mb-6 pb-4 border-b border-[#1e1e3a]">
+                <h3 className="text-base font-semibold text-[#e0e0e8] mb-2">{selectedThread.rootSubject}</h3>
                 <div className="flex items-center gap-3 text-xs text-[#4a4a5e]">
-                  {selectedMessage.direction === 'agent_to_human' ? (
-                    <>
-                      <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>From <span className="text-[#7a7a8e]">{selectedMessage.agentName}</span></span>
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUpRight className="w-3.5 h-3.5 text-blue-400" />
-                      <span>To <span className="text-[#7a7a8e]">{selectedMessage.agentName}</span></span>
-                    </>
-                  )}
-                  <span>{new Date(selectedMessage.timestamp).toLocaleString()}</span>
+                  <span>{selectedThread.messages.length} message{selectedThread.messages.length !== 1 ? 's' : ''}</span>
+                  <span>•</span>
+                  <span>with {selectedThread.participantAgents.join(', ')}</span>
                 </div>
               </div>
 
-              {/* Body */}
-              <div className="bg-[#0f0f18] border border-[#1e1e3a] rounded-xl p-4 mb-6 text-sm">
-                <MarkdownContent text={selectedMessage.body} />
+              {/* Messages in thread */}
+              <div className="space-y-3">
+                {selectedThread.messages.map((msg) => {
+                  const isExpanded = expandedMessageId === msg.id;
+
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`border border-[#1e1e3a] rounded-xl overflow-hidden transition-all duration-200 ${
+                        isExpanded ? 'bg-[#0f0f18]' : 'bg-[#0a0a0f] hover:bg-[#0f0f18]'
+                      }`}
+                    >
+                      {/* Collapsed header (always visible) */}
+                      <button
+                        onClick={() => setExpandedMessageId(isExpanded ? null : msg.id)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      >
+                        {/* Expand icon */}
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4 text-[#4a4a5e] shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-[#4a4a5e] shrink-0" />
+                        )}
+
+                        {/* Direction icon */}
+                        {msg.direction === 'agent_to_human' ? (
+                          <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        ) : (
+                          <ArrowUpRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        )}
+
+                        {/* From/To and timestamp */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-[#e0e0e8]">
+                              {msg.direction === 'agent_to_human' ? msg.agentName : `You → ${msg.agentName}`}
+                            </span>
+                            {msg.category && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${categoryColors[msg.category]?.bg || ''} ${categoryColors[msg.category]?.text || ''}`}>
+                                {msg.category}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <span className="text-xs text-[#4a4a5e] shrink-0">
+                          {formatRelativeTime(msg.timestamp)}
+                        </span>
+                      </button>
+
+                      {/* Expanded content */}
+                      {isExpanded && (
+                        <div className="px-4 pb-4 pt-1 border-t border-[#1e1e3a]">
+                          <div className="pl-7">
+                            <div className="text-sm text-[#7a7a8e] mb-3">
+                              <MarkdownContent text={msg.body} />
+                            </div>
+
+                            {/* Reply button (only for agent messages) */}
+                            {msg.direction === 'agent_to_human' && (
+                              <button
+                                onClick={() => handleReply(msg)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-indigo-400 hover:text-indigo-300 border border-[#1e1e3a] hover:bg-indigo-500/10 rounded-lg transition-all duration-200"
+                              >
+                                <Reply className="w-3 h-3" />
+                                Reply
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
-              {/* Actions */}
-              {selectedMessage.direction === 'agent_to_human' && (
+              {/* Quick reply at bottom */}
+              <div className="mt-6 pt-4 border-t border-[#1e1e3a]">
                 <button
-                  onClick={() => handleReply(selectedMessage)}
+                  onClick={() => handleReply(selectedThread.latestMessage)}
                   className="flex items-center gap-2 px-4 py-2 text-sm text-indigo-400 hover:text-indigo-300 border border-[#1e1e3a] hover:bg-indigo-500/10 rounded-xl transition-all duration-200"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  Reply
+                  <Reply className="w-4 h-4" />
+                  Reply to thread
                 </button>
-              )}
+              </div>
             </div>
           ) : (
             /* Empty state */
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <Mail className="w-12 h-12 mx-auto mb-3 text-[#1e1e3a]" />
-                <p className="text-[#4a4a5e] text-sm">Select a message to view</p>
+                <p className="text-[#4a4a5e] text-sm">Select a conversation to view</p>
               </div>
             </div>
           )}
