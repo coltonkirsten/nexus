@@ -73,6 +73,24 @@ export async function getTeamSharedFile(teamId: string, path: string): Promise<{
   return response.data;
 }
 
+export async function downloadTeamSharedFile(teamId: string, filePath: string, fileName: string): Promise<void> {
+  const response = await api.get(`/api/teams/${teamId}/shared/download`, {
+    params: { path: filePath },
+    responseType: 'blob',
+  });
+
+  // Create download link
+  const blob = new Blob([response.data]);
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
 export async function getAgentRawLogs(agentId: string): Promise<Array<{ type: string; data: unknown; timestamp: string }>> {
   const response = await api.get<Array<{ type: string; data: unknown; timestamp: string }>>(`/api/agents/${agentId}/logs/raw`);
   return response.data;

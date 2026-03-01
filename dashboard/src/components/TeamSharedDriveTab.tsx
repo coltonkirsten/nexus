@@ -7,8 +7,9 @@ import {
   FolderOpen,
   RefreshCw,
   AlertCircle,
+  Download,
 } from 'lucide-react';
-import { getTeamSharedTree, getTeamSharedFile } from '../api/teams';
+import { getTeamSharedTree, getTeamSharedFile, downloadTeamSharedFile } from '../api/teams';
 import type { FileEntry } from '../api/agents';
 
 interface TeamSharedDriveTabProps {
@@ -129,6 +130,7 @@ export function TeamSharedDriveTab({ teamId }: TeamSharedDriveTabProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [isLoadingTree, setIsLoadingTree] = useState(true);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTree = useCallback(async () => {
@@ -178,6 +180,19 @@ export function TeamSharedDriveTab({ teamId }: TeamSharedDriveTabProps) {
       else next.add(path);
       return next;
     });
+  };
+
+  const handleDownload = async () => {
+    if (!selectedFile) return;
+    setIsDownloading(true);
+    try {
+      await downloadTeamSharedFile(teamId, selectedFile.path, selectedFile.name);
+    } catch (err) {
+      console.error('Download failed:', err);
+      setError('Failed to download file');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const language = selectedFile ? getLanguageFromPath(selectedFile.path) : 'plaintext';
@@ -233,8 +248,16 @@ export function TeamSharedDriveTab({ teamId }: TeamSharedDriveTabProps) {
           <>
             <div className="flex items-center gap-2 px-4 py-3 border-b border-[#1e1e3a] min-w-0">
               <File className="w-4 h-4 text-[#7a7a8e] shrink-0" />
-              <span className="text-sm text-[#e0e0e8] truncate">{selectedFile.path}</span>
+              <span className="text-sm text-[#e0e0e8] truncate flex-1">{selectedFile.path}</span>
               <span className="text-xs text-[#4a4a5e] px-2 py-0.5 bg-[#1a1a2e] rounded-xl">{language}</span>
+              <button
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className="p-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200 disabled:opacity-50"
+                title="Download file"
+              >
+                <Download className={`w-4 h-4 ${isDownloading ? 'animate-pulse' : ''}`} />
+              </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
               {isLoadingContent ? (

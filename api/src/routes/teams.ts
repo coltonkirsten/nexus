@@ -376,6 +376,111 @@ router.get('/:id/shared/file', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/teams/:id/shared/download - Download shared drive file
+router.get('/:id/shared/download', async (req: Request, res: Response) => {
+  try {
+    const team = await getTeam(req.params.id);
+    if (!team) {
+      res.status(404).json({ error: 'Team not found' });
+      return;
+    }
+
+    const filePath = req.query.path as string;
+    if (!filePath) {
+      res.status(400).json({ error: 'File path required' });
+      return;
+    }
+
+    const containerPath = filePath.startsWith('/shared') ? filePath : `/shared/${filePath}`;
+    const fileName = path.basename(filePath);
+    const ext = path.extname(fileName).toLowerCase();
+
+    // Determine MIME type
+    const mimeTypes: Record<string, string> = {
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+      '.html': 'text/html',
+      '.css': 'text/css',
+      '.js': 'application/javascript',
+      '.json': 'application/json',
+      '.xml': 'application/xml',
+      '.pdf': 'application/pdf',
+      '.zip': 'application/zip',
+      '.gz': 'application/gzip',
+      '.tar': 'application/x-tar',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.mp4': 'video/mp4',
+      '.webm': 'video/webm',
+      '.csv': 'text/csv',
+      '.py': 'text/x-python',
+      '.ts': 'text/typescript',
+      '.tsx': 'text/typescript',
+    };
+    const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+    // Try via a running team member first
+    const members = await getTeamMembers(req.params.id);
+    const runningMember = members.find(m => m.status === 'running');
+
+    let fileContent: Buffer | null = null;
+
+    if (runningMember) {
+      const response = await engineFetchForAgent(
+        runningMember.id,
+        `/files/read?path=${encodeURIComponent(containerPath)}`
+      );
+      if (response) {
+        const data = await response.json() as { content: string; encoding?: 'utf-8' | 'base64' };
+        if (data.encoding === 'base64') {
+          fileContent = Buffer.from(data.content, 'base64');
+        } else {
+          fileContent = Buffer.from(data.content, 'utf-8');
+        }
+      }
+    }
+
+    // Fallback: read from Docker volume directly
+    if (!fileContent) {
+      const volPath = filePath.startsWith('/shared') ? filePath.replace('/shared', '') : `/${filePath}`;
+      try {
+        const archiveStream = await readFromVolume(team.sharedVolume, volPath || '/');
+        const result = await parseTarFile(archiveStream, volPath);
+        if (result) {
+          if (result.encoding === 'base64') {
+            fileContent = Buffer.from(result.content, 'base64');
+          } else {
+            fileContent = Buffer.from(result.content, 'utf-8');
+          }
+        }
+      } catch {
+        // Will handle below
+      }
+    }
+
+    if (!fileContent) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+
+    // Set headers for download
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', fileContent.length);
+    res.send(fileContent);
+  } catch (error) {
+    console.error('Error downloading shared drive file:', error);
+    res.status(500).json({ error: 'Failed to download file' });
+  }
+});
+
 // --- Run Endpoints ---
 
 // GET /api/teams/:id/runs - List all runs for team
