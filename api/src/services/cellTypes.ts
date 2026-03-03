@@ -97,10 +97,11 @@ export const CELL_TYPES: CellTypeDefinition[] = [
       { key: 'OPENAI_API_KEY', label: 'OpenAI API Key', required: true, placeholder: 'sk-...' },
     ],
     models: [
-      { value: 'o3', label: 'o3 (Recommended)' },
-      { value: 'o4-mini', label: 'o4-mini' },
+      { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex (Recommended)' },
+      { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
       { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
-      { value: 'gpt-4.1', label: 'GPT-4.1' },
+      { value: 'o3', label: 'o3' },
+      { value: 'o4-mini', label: 'o4-mini' },
     ],
   },
 ];

@@ -160,7 +160,7 @@ export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<
     options.message,
     "--json",                              // Streaming JSON output
     "--dangerously-bypass-approvals-and-sandbox",  // Full headless mode (like --yolo)
-    "-m", options.model || "o3",           // Model selection
+    "-m", options.model || "gpt-5.3-codex", // Model selection (default to latest Codex model)
   ];
 
   // Session resume — use --last for most recent session in this container
