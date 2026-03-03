@@ -131,13 +131,17 @@ async function writePeersInfo(): Promise<void> {
  * Parses streaming JSON output line-by-line and normalizes events
  * to the format the dashboard expects.
  *
- * Codex CLI JSON events (based on documentation):
- *   { type: "start", session_id?, model }
- *   { type: "message", role: "assistant"|"user", content }
- *   { type: "tool_call", name, arguments }
- *   { type: "tool_result", output, error? }
- *   { type: "done", usage: { prompt_tokens, completion_tokens } }
+ * Codex CLI JSON events (from official documentation):
+ *   { type: "thread.started", thread_id }
+ *   { type: "turn.started" }
+ *   { type: "item.started", item: { id, type, command?, ... } }
+ *   { type: "item.updated", item: { ... } }
+ *   { type: "item.completed", item: { id, type, text?, output?, status?, ... } }
+ *   { type: "turn.completed", usage: { input_tokens, cached_input_tokens, output_tokens } }
+ *   { type: "turn.failed", error }
  *   { type: "error", message }
+ *
+ * Item types: agent_message, reasoning, command_execution, file_change, mcp_tool_call, web_search, plan_update
  */
 export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<CodexCliRunnerResult> {
   // Pre-spawn setup: write system prompt, MCP config, and peers info
@@ -235,38 +239,42 @@ export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<
           const event = JSON.parse(trimmed);
           processCodexEvent(event, options);
 
-          // Extract session ID from start events
-          if (event.type === "start" && event.session_id) {
-            sessionId = event.session_id;
+          // Extract session/thread ID from thread.started events
+          if (event.type === "thread.started" && event.thread_id) {
+            sessionId = event.thread_id as string;
           }
 
-          // Accumulate assistant message text
-          if (event.type === "message" && event.role === "assistant" && event.content) {
-            assistantTextBuffer = event.content;
+          // Accumulate assistant message text from item.completed with agent_message type
+          if (event.type === "item.completed") {
+            const item = event.item as Record<string, unknown> | undefined;
+            if (item && item.type === "agent_message" && item.text) {
+              assistantTextBuffer = item.text as string;
+            }
           }
 
-          // Reset buffer on tool calls (new turn)
-          if (event.type === "tool_call") {
+          // Reset buffer on turn start (new turn)
+          if (event.type === "turn.started") {
             assistantTextBuffer = "";
           }
 
-          // Extract token usage from done events
-          if (event.type === "done") {
+          // Extract token usage from turn.completed events
+          if (event.type === "turn.completed") {
             resultText = assistantTextBuffer || resultText;
             const usage = event.usage as Record<string, number> | undefined;
             if (usage) {
-              if (typeof usage.prompt_tokens === "number") {
-                inputTokens += usage.prompt_tokens;
+              if (typeof usage.input_tokens === "number") {
+                inputTokens += usage.input_tokens;
               }
-              if (typeof usage.completion_tokens === "number") {
-                outputTokens += usage.completion_tokens;
+              if (typeof usage.output_tokens === "number") {
+                outputTokens += usage.output_tokens;
               }
             }
           }
 
           // Handle errors
-          if (event.type === "error") {
-            resultText = event.message || "Codex CLI error";
+          if (event.type === "error" || event.type === "turn.failed") {
+            const errorMsg = (event.message as string) || (event.error as string) || "Codex CLI error";
+            resultText = errorMsg;
           }
         } catch {
           // Not JSON — log as raw output
@@ -302,15 +310,15 @@ export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<
         try {
           const event = JSON.parse(stdoutBuffer.trim());
           processCodexEvent(event, options);
-          if (event.type === "done") {
+          if (event.type === "turn.completed") {
             resultText = assistantTextBuffer || resultText;
             const usage = event.usage as Record<string, number> | undefined;
             if (usage) {
-              if (typeof usage.prompt_tokens === "number") {
-                inputTokens += usage.prompt_tokens;
+              if (typeof usage.input_tokens === "number") {
+                inputTokens += usage.input_tokens;
               }
-              if (typeof usage.completion_tokens === "number") {
-                outputTokens += usage.completion_tokens;
+              if (typeof usage.output_tokens === "number") {
+                outputTokens += usage.output_tokens;
               }
             }
           }
@@ -337,71 +345,158 @@ export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<
 /**
  * Normalize a Codex CLI JSON event into the format the dashboard expects.
  * The dashboard expects messages in SDK-compatible format (same as Claude/Gemini).
+ *
+ * Codex CLI actual event types (from documentation):
+ *   thread.started - { type: "thread.started", thread_id }
+ *   turn.started   - { type: "turn.started" }
+ *   turn.completed - { type: "turn.completed", usage: { input_tokens, cached_input_tokens, output_tokens } }
+ *   turn.failed    - { type: "turn.failed", error }
+ *   item.started   - { type: "item.started", item: { id, type, ... } }
+ *   item.updated   - { type: "item.updated", item: { id, type, ... } }
+ *   item.completed - { type: "item.completed", item: { id, type, text?, command?, status?, ... } }
+ *   error          - { type: "error", message }
+ *
+ * Item types: agent_message, reasoning, command_execution, file_change, mcp_tool_call, web_search, plan_update
  */
 function processCodexEvent(
   event: Record<string, unknown>,
   options: CodexCliRunnerOptions,
 ): void {
   switch (event.type) {
-    case "start": {
+    case "thread.started": {
       // Normalize to SDK init format
       options.onLogEntry("agent_message", {
         type: "system",
         subtype: "init",
-        session_id: event.session_id || null,
-        model: event.model,
+        session_id: event.thread_id || null,
       });
       break;
     }
 
-    case "message": {
-      if (event.role === "assistant") {
+    case "turn.started": {
+      options.onLogEntry("agent_message", {
+        type: "system",
+        subtype: "turn_started",
+      });
+      break;
+    }
+
+    case "turn.completed": {
+      const usage = event.usage as Record<string, number> | undefined;
+      options.onLogEntry("agent_message", {
+        type: "result",
+        result: "",
+        is_error: false,
+        usage: usage ? {
+          input_tokens: usage.input_tokens || 0,
+          output_tokens: usage.output_tokens || 0,
+          cached_input_tokens: usage.cached_input_tokens || 0,
+        } : undefined,
+      });
+      break;
+    }
+
+    case "turn.failed": {
+      options.onLogEntry("agent_message", {
+        type: "result",
+        result: "",
+        is_error: true,
+        error: event.error,
+      });
+      break;
+    }
+
+    case "item.started":
+    case "item.updated": {
+      const item = event.item as Record<string, unknown> | undefined;
+      if (!item) break;
+
+      // Log tool execution start
+      if (item.type === "command_execution") {
         options.onLogEntry("agent_message", {
           type: "assistant",
           message: {
-            content: [{ type: "text", text: event.content || "" }],
+            content: [{
+              type: "tool_use",
+              id: item.id || `cmd_${Date.now()}`,
+              name: "bash",
+              input: { command: item.command || "" },
+            }],
           },
         });
-      } else if (event.role === "user") {
+      } else if (item.type === "mcp_tool_call") {
         options.onLogEntry("agent_message", {
-          type: "user",
+          type: "assistant",
           message: {
-            content: [{ type: "text", text: event.content || "" }],
+            content: [{
+              type: "tool_use",
+              id: item.id || `mcp_${Date.now()}`,
+              name: (item.tool_name as string) || "mcp_tool",
+              input: item.parameters || {},
+            }],
           },
         });
       }
       break;
     }
 
-    case "tool_call": {
-      options.onLogEntry("agent_message", {
-        type: "assistant",
-        message: {
-          content: [{
-            type: "tool_use",
-            id: event.id || `tool_${Date.now()}`,
-            name: event.name,
-            input: event.arguments || {},
-          }],
-        },
-      });
-      break;
-    }
+    case "item.completed": {
+      const item = event.item as Record<string, unknown> | undefined;
+      if (!item) break;
 
-    case "tool_result": {
-      const resultContent = event.error
-        ? JSON.stringify(event.error)
-        : (event.output || "");
-      options.onLogEntry("agent_message", {
-        type: "user",
-        message: {
-          content: [{
-            type: "tool_result",
-            tool_use_id: event.tool_call_id || event.id || "unknown",
-            content: resultContent,
-          }],
-        },
-      });
+      if (item.type === "agent_message") {
+        // Assistant text message
+        options.onLogEntry("agent_message", {
+          type: "assistant",
+          message: {
+            content: [{ type: "text", text: (item.text as string) || "" }],
+          },
+        });
+      } else if (item.type === "reasoning") {
+        // Internal reasoning (show as system message)
+        options.onLogEntry("agent_message", {
+          type: "system",
+          subtype: "reasoning",
+          text: item.text,
+        });
+      } else if (item.type === "command_execution") {
+        // Command result
+        options.onLogEntry("agent_message", {
+          type: "user",
+          message: {
+            content: [{
+              type: "tool_result",
+              tool_use_id: (item.id as string) || "unknown",
+              content: (item.output as string) || "",
+              is_error: item.status === "failed",
+            }],
+          },
+        });
+      } else if (item.type === "file_change") {
+        // File operation result
+        options.onLogEntry("agent_message", {
+          type: "user",
+          message: {
+            content: [{
+              type: "tool_result",
+              tool_use_id: (item.id as string) || "unknown",
+              content: `File ${item.action}: ${item.path}`,
+            }],
+          },
+        });
+      } else if (item.type === "mcp_tool_call") {
+        // MCP tool result
+        options.onLogEntry("agent_message", {
+          type: "user",
+          message: {
+            content: [{
+              type: "tool_result",
+              tool_use_id: (item.id as string) || "unknown",
+              content: (item.result as string) || JSON.stringify(item.output || ""),
+            }],
+          },
+        });
+      }
       break;
     }
 
@@ -414,22 +509,8 @@ function processCodexEvent(
       break;
     }
 
-    case "done": {
-      const usage = event.usage as Record<string, number> | undefined;
-      options.onLogEntry("agent_message", {
-        type: "result",
-        result: "",
-        is_error: false,
-        usage: usage ? {
-          input_tokens: usage.prompt_tokens || 0,
-          output_tokens: usage.completion_tokens || 0,
-        } : undefined,
-      });
-      break;
-    }
-
     default: {
-      // Unknown event type — log as-is
+      // Unknown event type — log as-is for debugging
       options.onLogEntry("agent_message", event);
       break;
     }
