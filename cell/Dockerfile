@@ -45,6 +45,9 @@ RUN npm install -g @anthropic-ai/claude-code
 # Install gemini CLI globally (used by Gemini cell mode)
 RUN npm install -g @google/gemini-cli
 
+# Install OpenAI Codex CLI globally (used by Codex cell mode)
+RUN npm install -g @openai/codex
+
 # Create non-root user "agent"
 RUN useradd -m -s /bin/bash agent
 

@@ -88,6 +88,21 @@ export const CELL_TYPES: CellTypeDefinition[] = [
       { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
     ],
   },
+  {
+    id: 'codex',
+    name: 'Codex (OpenAI)',
+    description: 'Uses the OpenAI Codex CLI agent. Requires an API key from platform.openai.com.',
+    engineMode: 'codex',
+    credentials: [
+      { key: 'OPENAI_API_KEY', label: 'OpenAI API Key', required: true, placeholder: 'sk-...' },
+    ],
+    models: [
+      { value: 'o3', label: 'o3 (Recommended)' },
+      { value: 'o4-mini', label: 'o4-mini' },
+      { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
+      { value: 'gpt-4.1', label: 'GPT-4.1' },
+    ],
+  },
 ];
 
 export function getCellType(id: string): CellTypeDefinition | undefined {

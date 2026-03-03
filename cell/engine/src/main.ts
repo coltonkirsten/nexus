@@ -6,6 +6,7 @@ import { join, normalize, extname } from "path";
 import { createNexusMcpServer, updatePeers, getPeers, type PeerAgent } from "./mcp.js";
 import { runCliAgent } from "./cli-runner.js";
 import { runGeminiCliAgent } from "./gemini-cli-runner.js";
+import { runCodexCliAgent } from "./codex-cli-runner.js";
 
 // Cell mode: "sdk" (default), "cli", or "gemini"
 const CELL_MODE = process.env.CELL_MODE || "sdk";
@@ -473,6 +474,84 @@ async function runAgent(
         currentSessionId = geminiResult.sessionId;
         await saveSessionId(geminiResult.sessionId);
       }
+    } else if (CELL_MODE === "codex") {
+      // --- Codex CLI mode: spawn the OpenAI codex binary ---
+      const codexOnLogEntry = (type: string, data: unknown) => {
+        // Normalize Codex CLI event format to match SDK format (same as other CLI modes)
+        if (type === "agent_message" && data && typeof data === "object") {
+          const msg = data as Record<string, unknown>;
+          if (msg.type === "assistant" && Array.isArray(msg.content) && !msg.message) {
+            msg.message = { content: msg.content };
+          }
+          if (msg.type === "user" && Array.isArray(msg.content) && !msg.message) {
+            msg.message = { content: msg.content };
+          }
+        }
+        addLog(type, data);
+
+        // Extract session_id from system init messages
+        if (
+          data &&
+          typeof data === "object" &&
+          "type" in data &&
+          (data as Record<string, unknown>).type === "system" &&
+          "subtype" in data &&
+          (data as Record<string, unknown>).subtype === "init" &&
+          "session_id" in data &&
+          typeof (data as Record<string, unknown>).session_id === "string"
+        ) {
+          const newSessionId = (data as Record<string, unknown>).session_id as string;
+          if (newSessionId !== currentSessionId) {
+            currentSessionId = newSessionId;
+            saveSessionId(newSessionId).catch(() => {});
+          }
+        }
+      };
+
+      let codexResult;
+      try {
+        codexResult = await runCodexCliAgent({
+          message,
+          systemPrompt,
+          appendPrompt,
+          model: config.model || "o3",
+          maxTurns: config.maxTurns || 50,
+          sessionId: resumeSessionId,
+          abortSignal: abortController.signal,
+          onLogEntry: codexOnLogEntry,
+        });
+      } catch (codexErr) {
+        // If session is stale, clear it and retry without resume
+        const errMsg = codexErr instanceof Error ? codexErr.message : String(codexErr);
+        if (resumeSessionId && (errMsg.includes("session") || errMsg.includes("resume"))) {
+          addLog("session_stale", { sessionId: resumeSessionId, message: "Stale session detected, retrying without resume" });
+          await clearSessionFile();
+          codexResult = await runCodexCliAgent({
+            message,
+            systemPrompt,
+            appendPrompt,
+            model: config.model || "o3",
+            maxTurns: config.maxTurns || 50,
+            sessionId: null,
+            abortSignal: abortController.signal,
+            onLogEntry: codexOnLogEntry,
+          });
+        } else {
+          throw codexErr;
+        }
+      }
+
+      resultText = codexResult.resultText;
+      invocationInputTokens = codexResult.inputTokens;
+      invocationOutputTokens = codexResult.outputTokens;
+      tokenUsage.inputTokens += codexResult.inputTokens;
+      tokenUsage.outputTokens += codexResult.outputTokens;
+      tokenUsage.totalTokens = tokenUsage.inputTokens + tokenUsage.outputTokens;
+
+      if (codexResult.sessionId && codexResult.sessionId !== currentSessionId) {
+        currentSessionId = codexResult.sessionId;
+        await saveSessionId(codexResult.sessionId);
+      }
     } else {
       // --- SDK mode: use the Anthropic Agent SDK ---
 
@@ -814,6 +893,11 @@ app.post("/message", async (req: Request, res: Response) => {
   } else if (CELL_MODE === "cli") {
     if (!process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
       res.status(500).json({ error: "CLI mode requires CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY" });
+      return;
+    }
+  } else if (CELL_MODE === "codex") {
+    if (!process.env.OPENAI_API_KEY) {
+      res.status(500).json({ error: "OPENAI_API_KEY not configured. Add it in Settings → Credentials." });
       return;
     }
   } else {
