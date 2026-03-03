@@ -69,7 +69,8 @@ async function writeSystemPromptFile(systemPrompt: string, appendPrompt: string)
 
 /**
  * Write MCP config to ~/.codex/config.toml.
- * Codex CLI supports MCP servers via the mcp.servers config section.
+ * Codex CLI supports MCP servers via [mcp_servers.<name>] tables.
+ * Reference: https://developers.openai.com/codex/config-reference/
  */
 async function writeMcpConfig(): Promise<void> {
   const home = process.env.HOME || "/home/agent";
@@ -82,17 +83,23 @@ async function writeMcpConfig(): Promise<void> {
   // Write peers file for MCP stdio process
   await writeFile("/tmp/nexus-peers.json", JSON.stringify(peers), "utf-8");
 
-  // Codex uses TOML config format
-  // Reference: https://developers.openai.com/codex/cli/reference/
+  // Codex uses TOML config format with flat keys (not nested tables)
+  // model is a string, not a table. MCP servers use [mcp_servers.<name>]
   const config = `# NEXUS Cell Configuration
-[model]
-default = "o3"
+# Schema: https://developers.openai.com/codex/config-schema.json
 
-[mcp.servers.nexus-intercom]
+# Default model (can be overridden via -m flag)
+model = "gpt-5.3-codex"
+
+# Approval policy for headless operation
+approval_policy = "never"
+
+# MCP Server for NEXUS team communication
+[mcp_servers.nexus-intercom]
 command = "node"
 args = ["/opt/engine/dist/mcp-stdio.js"]
 
-[mcp.servers.nexus-intercom.env]
+[mcp_servers.nexus-intercom.env]
 NEXUS_API_URL = "${process.env.NEXUS_API_URL || 'http://host.docker.internal:3001'}"
 AGENT_ID = "${agentId}"
 AGENT_NAME = "${process.env.AGENT_NAME || 'Agent'}"
@@ -127,6 +134,57 @@ async function writePeersInfo(): Promise<void> {
 }
 
 /**
+ * Ensure Codex CLI is logged in with the API key.
+ * Codex doesn't auto-read OPENAI_API_KEY - we must explicitly run `codex login --with-api-key`.
+ */
+async function ensureCodexLogin(): Promise<void> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY not configured");
+  }
+
+  // Check if already logged in
+  return new Promise((resolve, reject) => {
+    const checkProc = spawn("codex", ["login", "status"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, HOME: process.env.HOME || "/home/agent" },
+    });
+
+    checkProc.on("exit", (code) => {
+      if (code === 0) {
+        // Already logged in
+        resolve();
+      } else {
+        // Need to login - pipe API key via stdin
+        const loginProc = spawn("codex", ["login", "--with-api-key"], {
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env, HOME: process.env.HOME || "/home/agent" },
+        });
+
+        loginProc.stdin?.write(apiKey);
+        loginProc.stdin?.end();
+
+        loginProc.on("exit", (loginCode) => {
+          if (loginCode === 0) {
+            resolve();
+          } else {
+            reject(new Error(`Codex login failed with code ${loginCode}`));
+          }
+        });
+
+        loginProc.on("error", (err) => {
+          reject(new Error(`Codex login error: ${err.message}`));
+        });
+      }
+    });
+
+    checkProc.on("error", (err) => {
+      reject(new Error(`Codex login status check error: ${err.message}`));
+    });
+  });
+}
+
+/**
  * Runs the Codex CLI with the given message and options.
  * Parses streaming JSON output line-by-line and normalizes events
  * to the format the dashboard expects.
@@ -144,7 +202,8 @@ async function writePeersInfo(): Promise<void> {
  * Item types: agent_message, reasoning, command_execution, file_change, mcp_tool_call, web_search, plan_update
  */
 export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<CodexCliRunnerResult> {
-  // Pre-spawn setup: write system prompt, MCP config, and peers info
+  // Pre-spawn setup: ensure auth, write system prompt, MCP config, and peers info
+  await ensureCodexLogin();
   await writeSystemPromptFile(options.systemPrompt, options.appendPrompt);
   await writeMcpConfig();
   await writePeersInfo();
@@ -155,6 +214,9 @@ export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<
 
   // Build CLI arguments
   // Using `codex exec` for non-interactive execution with JSON output
+  // Note: Codex exec doesn't have session persistence like Claude Code.
+  // Each exec is independent. For multi-turn conversations, use `codex exec resume --last`,
+  // but for Nexus agent tasks, each message is treated as a standalone task.
   const args: string[] = [
     "exec",
     options.message,
@@ -162,11 +224,6 @@ export async function runCodexCliAgent(options: CodexCliRunnerOptions): Promise<
     "--dangerously-bypass-approvals-and-sandbox",  // Full headless mode (like --yolo)
     "-m", options.model || "gpt-5.3-codex", // Model selection (default to latest Codex model)
   ];
-
-  // Session resume — use --last for most recent session in this container
-  if (options.sessionId) {
-    args.push("--last");
-  }
 
   options.onLogEntry("cli_spawn", {
     args: args.map((a) =>
