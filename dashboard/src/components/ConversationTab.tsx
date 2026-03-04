@@ -170,12 +170,31 @@ export function ConversationTab({ agent }: ConversationTabProps) {
     },
   });
 
-  // Auto-scroll
+  // Auto-scroll when turns change
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [turns, autoScroll]);
+
+  // Scroll to bottom on initial load (when turns first populate)
+  const hasScrolledInitially = useRef(false);
+  const lastAgentId = useRef(agent.id);
+
+  // Reset scroll flag when agent changes
+  useEffect(() => {
+    if (agent.id !== lastAgentId.current) {
+      hasScrolledInitially.current = false;
+      lastAgentId.current = agent.id;
+    }
+  }, [agent.id]);
+
+  useEffect(() => {
+    if (turns.length > 0 && !hasScrolledInitially.current && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
+      hasScrolledInitially.current = true;
+    }
+  }, [turns.length]);
 
   const handleScroll = () => {
     if (containerRef.current) {
