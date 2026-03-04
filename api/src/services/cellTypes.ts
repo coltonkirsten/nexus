@@ -90,18 +90,46 @@ export const CELL_TYPES: CellTypeDefinition[] = [
   },
   {
     id: 'codex',
-    name: 'Codex (OpenAI)',
-    description: 'Uses the OpenAI Codex CLI agent. Requires an API key from platform.openai.com.',
+    name: 'Codex (OpenAI API Key)',
+    description: 'Uses the OpenAI Codex CLI with API key authentication. Get your key from platform.openai.com.',
     engineMode: 'codex',
     credentials: [
       { key: 'OPENAI_API_KEY', label: 'OpenAI API Key', required: true, placeholder: 'sk-...' },
     ],
     models: [
+      // GPT-5 Series (Flagship)
       { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex (Recommended)' },
-      { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-      { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
+      { value: 'gpt-5.2', label: 'GPT-5.2' },
+      { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+      // o-Series Reasoning Models
+      { value: 'o3-pro', label: 'o3-pro (Most Powerful)' },
       { value: 'o3', label: 'o3' },
-      { value: 'o4-mini', label: 'o4-mini' },
+      { value: 'o4-mini', label: 'o4-mini (Fast & Efficient)' },
+      // Deep Research
+      { value: 'o3-deep-research', label: 'o3 Deep Research' },
+      { value: 'o4-mini-deep-research', label: 'o4-mini Deep Research' },
+    ],
+  },
+  {
+    id: 'codex-oauth',
+    name: 'Codex (ChatGPT Account)',
+    description: 'Uses the OpenAI Codex CLI with ChatGPT OAuth. Uses your ChatGPT Plus/Pro subscription.',
+    engineMode: 'codex-oauth',
+    credentials: [
+      { key: 'OPENAI_OAUTH_TOKEN', label: 'ChatGPT OAuth Token', required: true, placeholder: 'Run `codex login` and copy token from ~/.codex/auth.json' },
+    ],
+    models: [
+      // GPT-5 Series (Flagship)
+      { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex (Recommended)' },
+      { value: 'gpt-5.2', label: 'GPT-5.2' },
+      { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+      // o-Series Reasoning Models
+      { value: 'o3-pro', label: 'o3-pro (Most Powerful)' },
+      { value: 'o3', label: 'o3' },
+      { value: 'o4-mini', label: 'o4-mini (Fast & Efficient)' },
+      // Deep Research
+      { value: 'o3-deep-research', label: 'o3 Deep Research' },
+      { value: 'o4-mini-deep-research', label: 'o4-mini Deep Research' },
     ],
   },
 ];

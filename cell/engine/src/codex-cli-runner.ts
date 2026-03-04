@@ -134,20 +134,50 @@ async function writePeersInfo(): Promise<void> {
 }
 
 /**
- * Ensure Codex CLI is logged in with the API key.
- * Codex doesn't auto-read OPENAI_API_KEY - we must explicitly run `codex login --with-api-key`.
+ * Ensure Codex CLI is authenticated.
+ *
+ * Supports two authentication methods:
+ * 1. API Key (OPENAI_API_KEY): Pipe to `codex login --with-api-key`
+ * 2. OAuth Token (OPENAI_OAUTH_TOKEN): Write directly to ~/.codex/auth.json
+ *
+ * OAuth uses ChatGPT Plus/Pro subscription. API key uses platform.openai.com credits.
  */
 async function ensureCodexLogin(): Promise<void> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY not configured");
+  const oauthToken = process.env.OPENAI_OAUTH_TOKEN;
+
+  if (!apiKey && !oauthToken) {
+    throw new Error("Either OPENAI_API_KEY or OPENAI_OAUTH_TOKEN must be configured");
   }
 
-  // Check if already logged in
+  const home = process.env.HOME || "/home/agent";
+  const codexDir = `${home}/.codex`;
+  await mkdir(codexDir, { recursive: true });
+
+  // If OAuth token is provided, write it directly to auth.json
+  if (oauthToken) {
+    // Codex stores OAuth tokens in auth.json format
+    // The token should be the full JSON from ~/.codex/auth.json after running `codex login`
+    try {
+      // Check if it's already valid JSON (the full auth object)
+      const parsed = JSON.parse(oauthToken);
+      await writeFile(`${codexDir}/auth.json`, JSON.stringify(parsed, null, 2), "utf-8");
+    } catch {
+      // If not JSON, assume it's just the access token - wrap it in the expected format
+      const authObj = {
+        access_token: oauthToken,
+        token_type: "Bearer",
+      };
+      await writeFile(`${codexDir}/auth.json`, JSON.stringify(authObj, null, 2), "utf-8");
+    }
+    return;
+  }
+
+  // API key auth: Check if already logged in, otherwise login
   return new Promise((resolve, reject) => {
     const checkProc = spawn("codex", ["login", "status"], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, HOME: process.env.HOME || "/home/agent" },
+      env: { ...process.env, HOME: home },
     });
 
     checkProc.on("exit", (code) => {
@@ -158,7 +188,7 @@ async function ensureCodexLogin(): Promise<void> {
         // Need to login - pipe API key via stdin
         const loginProc = spawn("codex", ["login", "--with-api-key"], {
           stdio: ["pipe", "pipe", "pipe"],
-          env: { ...process.env, HOME: process.env.HOME || "/home/agent" },
+          env: { ...process.env, HOME: home },
         });
 
         loginProc.stdin?.write(apiKey);

@@ -474,8 +474,9 @@ async function runAgent(
         currentSessionId = geminiResult.sessionId;
         await saveSessionId(geminiResult.sessionId);
       }
-    } else if (CELL_MODE === "codex") {
+    } else if (CELL_MODE === "codex" || CELL_MODE === "codex-oauth") {
       // --- Codex CLI mode: spawn the OpenAI codex binary ---
+      // Both API key and OAuth modes use the same runner; auth is handled in ensureCodexLogin()
       const codexOnLogEntry = (type: string, data: unknown) => {
         // Normalize Codex CLI event format to match SDK format (same as other CLI modes)
         if (type === "agent_message" && data && typeof data === "object") {
@@ -898,6 +899,11 @@ app.post("/message", async (req: Request, res: Response) => {
   } else if (CELL_MODE === "codex") {
     if (!process.env.OPENAI_API_KEY) {
       res.status(500).json({ error: "OPENAI_API_KEY not configured. Add it in Settings → Credentials." });
+      return;
+    }
+  } else if (CELL_MODE === "codex-oauth") {
+    if (!process.env.OPENAI_OAUTH_TOKEN) {
+      res.status(500).json({ error: "OPENAI_OAUTH_TOKEN not configured. Run `codex login` on your machine and copy the token from ~/.codex/auth.json" });
       return;
     }
   } else {
