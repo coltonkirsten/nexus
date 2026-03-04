@@ -177,24 +177,48 @@ export function ConversationTab({ agent }: ConversationTabProps) {
     }
   }, [turns, autoScroll]);
 
-  // Scroll to bottom on initial load (when turns first populate)
-  const hasScrolledInitially = useRef(false);
+  // Scroll to bottom on initial load and when switching agents
   const lastAgentId = useRef(agent.id);
+  const hasScrolledForAgent = useRef(false);
+  const scrollAttemptsRef = useRef(0);
 
-  // Reset scroll flag when agent changes
+  // Reset when agent changes
   useEffect(() => {
     if (agent.id !== lastAgentId.current) {
-      hasScrolledInitially.current = false;
       lastAgentId.current = agent.id;
+      hasScrolledForAgent.current = false;
+      scrollAttemptsRef.current = 0;
+      setAutoScroll(true);
     }
   }, [agent.id]);
 
+  // Scroll to bottom after turns load - retry a few times to handle async rendering
   useEffect(() => {
-    if (turns.length > 0 && !hasScrolledInitially.current && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'instant' });
-      hasScrolledInitially.current = true;
+    if (turns.length > 0 && !hasScrolledForAgent.current && containerRef.current) {
+      const scrollToBottom = () => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      };
+
+      // Scroll immediately
+      scrollToBottom();
+
+      // Also scroll after short delays to catch late-rendering content
+      const t1 = setTimeout(scrollToBottom, 50);
+      const t2 = setTimeout(scrollToBottom, 150);
+      const t3 = setTimeout(() => {
+        scrollToBottom();
+        hasScrolledForAgent.current = true;
+      }, 300);
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
     }
-  }, [turns.length]);
+  }, [agent.id, turns.length]);
 
   const handleScroll = () => {
     if (containerRef.current) {
