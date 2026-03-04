@@ -345,3 +345,18 @@ export async function setCredentials(cellType: string, values: Record<string, st
 export async function deleteCredentials(cellType: string): Promise<void> {
   await api.delete(`/api/cell-types/credentials/${cellType}`);
 }
+
+// Token Stats API
+
+export interface TokenStats {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  invocationCount: number;
+  sessionStartTime: string;
+}
+
+export async function getTokenStats(agentId: string): Promise<TokenStats> {
+  const response = await api.get<TokenStats>(`/api/agents/${agentId}/stats/tokens`);
+  return response.data;
+}

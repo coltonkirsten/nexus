@@ -707,6 +707,17 @@ app.get("/health", (_req: Request, res: Response) => {
   });
 });
 
+// Token usage stats endpoint
+app.get("/stats/tokens", (_req: Request, res: Response) => {
+  res.json({
+    inputTokens: tokenUsage.inputTokens,
+    outputTokens: tokenUsage.outputTokens,
+    totalTokens: tokenUsage.totalTokens,
+    invocationCount: tokenUsage.invocationCount,
+    sessionStartTime: tokenUsage.sessionStartTime,
+  });
+});
+
 // Init endpoint — seed ledger from template data (idempotent)
 app.post("/init", async (req: Request, res: Response) => {
   try {

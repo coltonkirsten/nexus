@@ -2168,6 +2168,38 @@ router.post('/:id/cron/:jobId/trigger', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/agents/:id/stats/tokens - Get token usage stats from agent
+router.get('/:id/stats/tokens', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agent = await getAgent(id);
+
+    if (!agent) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    if (!agent.port || agent.status !== 'running') {
+      res.status(400).json({ error: 'Agent is not running' });
+      return;
+    }
+
+    const response = await fetch(`http://localhost:${agent.port}/stats/tokens`);
+
+    if (!response.ok) {
+      const body = await response.json() as { error?: string };
+      res.status(response.status).json(body);
+      return;
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Error getting token stats:', error);
+    res.status(500).json({ error: 'Failed to get token stats' });
+  }
+});
+
 // GET /api/agents/:id/cron-history - Get cron run history
 router.get('/:id/cron-history', async (req: Request, res: Response) => {
   try {

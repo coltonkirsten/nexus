@@ -1,8 +1,39 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Circle, Trash2, Play, Square, Clock, XCircle } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import type { Agent } from '../types/agent';
-import { sendMessage, clearSession, startAgent, stopAgent, cancelAgentTask } from '../api/agents';
+import { sendMessage, clearSession, startAgent, stopAgent, cancelAgentTask, getTokenStats } from '../api/agents';
+
+// Context window sizes for different models (in tokens)
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  // Claude models
+  'claude-haiku-4-5-20251001': 200000,
+  'claude-sonnet-4-6-20250514': 200000,
+  'claude-sonnet-4-6': 200000,
+  'claude-opus-4-6': 200000,
+  // Gemini models
+  'gemini-3.1-pro-preview': 2000000,
+  'gemini-3-pro-preview': 2000000,
+  'gemini-3-flash-preview': 1000000,
+  'gemini-2.5-pro': 1000000,
+  'gemini-2.5-flash': 1000000,
+  'gemini-2.5-flash-lite': 128000,
+  // OpenAI models
+  'gpt-5.3-codex': 256000,
+  'gpt-5.2': 256000,
+  'gpt-5-mini': 128000,
+  'o3-pro': 200000,
+  'o3': 200000,
+  'o4-mini': 128000,
+  'o3-deep-research': 200000,
+  'o4-mini-deep-research': 128000,
+};
+
+// Get context window for a model, with a default fallback
+function getContextWindow(model?: string): number {
+  if (!model) return 200000; // Default to 200k
+  return MODEL_CONTEXT_WINDOWS[model] || 200000;
+}
 import { useAgentLogs } from '../hooks/useAgentLogs';
 import { useConversationStream } from '../hooks/useConversationStream';
 import { UserMessage } from './messages/UserMessage';
@@ -51,6 +82,19 @@ export function ConversationTab({ agent }: ConversationTabProps) {
   const queryClient = useQueryClient();
   const { logs, isConnected, error, clearLogs } = useAgentLogs(agent.id);
   const { turns, isAgentRunning } = useConversationStream(logs);
+
+  // Fetch token stats periodically when agent is running
+  const { data: tokenStats } = useQuery({
+    queryKey: ['tokenStats', agent.id],
+    queryFn: () => getTokenStats(agent.id),
+    enabled: agent.status === 'running',
+    refetchInterval: 5000, // Refresh every 5 seconds
+  });
+
+  // Calculate context window usage percentage
+  const contextWindow = getContextWindow(agent.config?.model);
+  const usedTokens = tokenStats?.totalTokens || 0;
+  const usagePercent = Math.min(100, (usedTokens / contextWindow) * 100);
 
   const isRunning = agent.status === 'running';
   const isTransitioning = agent.status === 'starting' || agent.status === 'stopping';
@@ -183,6 +227,28 @@ export function ConversationTab({ agent }: ConversationTabProps) {
         <div className="flex items-center gap-3">
           {error && (
             <span className="text-xs text-red-400">{error}</span>
+          )}
+          {/* Context window usage */}
+          {isRunning && tokenStats && (
+            <div className="flex items-center gap-2" title={`${usedTokens.toLocaleString()} / ${contextWindow.toLocaleString()} tokens`}>
+              <div className="w-16 h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    usagePercent >= 90 ? 'bg-red-500' :
+                    usagePercent >= 70 ? 'bg-yellow-500' :
+                    'bg-indigo-500'
+                  }`}
+                  style={{ width: `${usagePercent}%` }}
+                />
+              </div>
+              <span className={`text-[10px] font-medium ${
+                usagePercent >= 90 ? 'text-red-400' :
+                usagePercent >= 70 ? 'text-yellow-400' :
+                'text-[#4a4a5e]'
+              }`}>
+                {usagePercent.toFixed(0)}%
+              </span>
+            </div>
           )}
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
