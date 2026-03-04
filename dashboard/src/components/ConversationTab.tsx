@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Send, Circle, Trash2, Play, Square, Clock, XCircle } from 'lucide-react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import type { Agent } from '../types/agent';
@@ -170,55 +170,34 @@ export function ConversationTab({ agent }: ConversationTabProps) {
     },
   });
 
-  // Auto-scroll when turns change
-  useEffect(() => {
-    if (autoScroll && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [turns, autoScroll]);
-
-  // Scroll to bottom on initial load and when switching agents
+  // Track if we've done initial positioning for this agent
   const lastAgentId = useRef(agent.id);
-  const hasScrolledForAgent = useRef(false);
-  const scrollAttemptsRef = useRef(0);
+  const needsInitialPosition = useRef(true);
 
   // Reset when agent changes
   useEffect(() => {
     if (agent.id !== lastAgentId.current) {
       lastAgentId.current = agent.id;
-      hasScrolledForAgent.current = false;
-      scrollAttemptsRef.current = 0;
+      needsInitialPosition.current = true;
       setAutoScroll(true);
     }
   }, [agent.id]);
 
-  // Scroll to bottom after turns load - retry a few times to handle async rendering
-  useEffect(() => {
-    if (turns.length > 0 && !hasScrolledForAgent.current && containerRef.current) {
-      const scrollToBottom = () => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
-      };
-
-      // Scroll immediately
-      scrollToBottom();
-
-      // Also scroll after short delays to catch late-rendering content
-      const t1 = setTimeout(scrollToBottom, 50);
-      const t2 = setTimeout(scrollToBottom, 150);
-      const t3 = setTimeout(() => {
-        scrollToBottom();
-        hasScrolledForAgent.current = true;
-      }, 300);
-
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-      };
+  // useLayoutEffect runs synchronously after DOM mutations but before browser paint
+  // This prevents any visible "jump" - the scroll position is set before user sees anything
+  useLayoutEffect(() => {
+    if (containerRef.current && needsInitialPosition.current && turns.length > 0) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+      needsInitialPosition.current = false;
     }
-  }, [agent.id, turns.length]);
+  }, [turns]);
+
+  // Smooth scroll for subsequent updates during conversation
+  useEffect(() => {
+    if (containerRef.current && autoScroll && !needsInitialPosition.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [turns, autoScroll]);
 
   const handleScroll = () => {
     if (containerRef.current) {
