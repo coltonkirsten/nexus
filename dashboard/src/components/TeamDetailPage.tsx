@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Users, HardDrive, Activity, Mail, GitBranch } from 'lucide-react';
+import { ArrowLeft, Users, HardDrive, Activity, Mail, GitBranch, Kanban } from 'lucide-react';
 import type { Team } from '../types/agent';
 import { getTeam, getTeamMembers } from '../api/teams';
 import { getUnreadCount } from '../api/mailbox';
@@ -9,6 +9,7 @@ import { TeamSharedDriveTab } from './TeamSharedDriveTab';
 import { TeamLogsTab } from './TeamLogsTab';
 import { TeamMailboxTab } from './TeamMailboxTab';
 import { TeamTimeline } from './TeamTimeline';
+import { TeamKanbanTab } from './TeamKanbanTab';
 
 export function TeamDetailPage() {
   const { teamId, tab } = useParams<{ teamId: string; tab?: string }>();
@@ -66,6 +67,7 @@ export function TeamDetailPage() {
 
   const tabs = [
     { key: 'agents', label: 'Agents', icon: Users, badge: 0 },
+    { key: 'kanban', label: 'Kanban', icon: Kanban, badge: 0 },
     { key: 'mailbox', label: 'Mailbox', icon: Mail, badge: mailboxUnread },
     { key: 'shared', label: 'Shared Drive', icon: HardDrive, badge: 0 },
     { key: 'logs', label: 'Logs', icon: Activity, badge: 0 },
@@ -121,6 +123,7 @@ export function TeamDetailPage() {
       {/* Tab content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'agents' && <TeamAgentsTab teamId={teamId!} />}
+        {activeTab === 'kanban' && <TeamKanbanTab teamId={teamId!} />}
         {activeTab === 'mailbox' && <TeamMailboxTab teamId={teamId!} />}
         {activeTab === 'shared' && <TeamSharedDriveTab teamId={teamId!} />}
         {activeTab === 'logs' && <TeamLogsTab teamId={teamId!} />}

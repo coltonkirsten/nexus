@@ -11,6 +11,7 @@ import { registerMailboxTools } from "./tools/mailbox.js";
 import { registerVolumeTools } from "./tools/volumes.js";
 import { registerHistoryTools } from "./tools/history.js";
 import { registerCellTypeTools } from "./tools/cellTypes.js";
+import { registerBoardTools } from "./tools/boards.js";
 
 const server = new McpServer({
   name: "nexus",
@@ -27,6 +28,7 @@ registerMailboxTools(server);
 registerVolumeTools(server);
 registerHistoryTools(server);
 registerCellTypeTools(server);
+registerBoardTools(server);
 
 async function main() {
   const transport = new StdioServerTransport();

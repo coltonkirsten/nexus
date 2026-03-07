@@ -131,7 +131,13 @@ export type TeamEventType =
   | 'processing_completed'
   | 'processing_failed'
   | 'session_cleared'
-  | 'intercom_sent';
+  | 'intercom_sent'
+  | 'board_created'
+  | 'board_deleted'
+  | 'card_created'
+  | 'card_moved'
+  | 'card_deleted'
+  | 'card_completed';
 
 export interface TeamEvent {
   id: string;
@@ -204,6 +210,15 @@ export interface CronJobState {
 
 export type MailDirection = 'agent_to_human' | 'human_to_agent';
 
+export interface FileAttachment {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  path: string; // Relative path within uploads directory
+}
+
 export interface MailMessage {
   id: string;
   teamId: string;
@@ -217,6 +232,7 @@ export interface MailMessage {
   timestamp: string;
   replyToId?: string;
   metadata?: Record<string, unknown>;
+  attachments?: FileAttachment[];
 }
 
 // --- Unified Run Logging ---
@@ -241,4 +257,47 @@ export interface Run {
 
 export interface RunState {
   runs: Run[];
+}
+
+// --- Kanban Boards ---
+
+export type CardPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface ActivityEntry {
+  timestamp: string;
+  action: string;
+  actor: string;
+  details?: string;
+}
+
+export interface Card {
+  id: string;
+  title: string;
+  description?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  priority?: CardPriority;
+  labels: string[];
+  dueDate?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  activity: ActivityEntry[];
+}
+
+export interface Column {
+  id: string;
+  name: string;
+  position: number;
+  cards: Card[];
+}
+
+export interface Board {
+  id: string;
+  teamId: string;
+  name: string;
+  description?: string;
+  columns: Column[];
+  createdAt: string;
+  updatedAt: string;
 }

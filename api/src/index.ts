@@ -26,6 +26,8 @@ import volumesRouter from './routes/volumes.js';
 import teamsRouter from './routes/teams.js';
 import cellTypesRouter from './routes/cellTypes.js';
 import mailboxRouter from './routes/mailbox.js';
+import boardsRouter from './routes/boards.js';
+import uploadsRouter from './routes/uploads.js';
 import { recoverAllStuckMessages } from './services/agents.js';
 import { restartConsumersForRunningAgents } from './services/queueConsumer.js';
 import { handleTerminalConnection } from './services/terminal.js';
@@ -56,7 +58,9 @@ app.use('/api/agents', agentsRouter);
 app.use('/api/volumes', volumesRouter);
 app.use('/api/teams', teamsRouter);
 app.use('/api/teams', mailboxRouter);
+app.use('/api/teams', boardsRouter);
 app.use('/api/cell-types', cellTypesRouter);
+app.use('/api/uploads', uploadsRouter);
 // Credential routes are mounted under cell-types router (/api/cell-types/credentials/...)
 
 
