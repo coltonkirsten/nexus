@@ -6,6 +6,7 @@ import { VolumesPage } from './components/VolumesPage';
 import { TeamsPage } from './components/TeamsPage';
 import { TeamDetailPage } from './components/TeamDetailPage';
 import { SettingsPage } from './components/SettingsPage';
+import { DemosPage } from './components/demos/DemosPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ function App() {
           <Route path="/agent/:agentId/:tab?" element={<AgentDetailPage />} />
           <Route path="/team/:teamId/:tab?" element={<TeamDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/demos" element={<DemosPage />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
