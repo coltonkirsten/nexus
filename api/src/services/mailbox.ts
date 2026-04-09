@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import type { MailMessage, MailDirection } from '../types.js';
+import type { MailMessage, MailDirection, FileAttachment } from '../types.js';
 
 // Simple async mutex (same pattern as teams.ts)
 let mailboxLock: Promise<void> = Promise.resolve();

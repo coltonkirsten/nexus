@@ -11,7 +11,7 @@ import {
 import { getAgent, enqueueMessage } from '../services/agents.js';
 import { emitTeamEvent, getTeam } from '../services/teams.js';
 import { notifyNewMessage } from '../services/queueConsumer.js';
-import type { MailDirection } from '../types.js';
+import type { MailDirection, FileAttachment } from '../types.js';
 
 const router = Router();
 
@@ -55,7 +55,13 @@ router.get('/:teamId/mailbox', async (req: Request, res: Response) => {
 router.post('/:teamId/mailbox', async (req: Request, res: Response) => {
   try {
     const { teamId } = req.params;
-    const { agentId, subject, body, replyToId } = req.body;
+    const { agentId, subject, body, replyToId, attachments } = req.body as {
+      agentId: string;
+      subject: string;
+      body: string;
+      replyToId?: string;
+      attachments?: FileAttachment[];
+    };
 
     if (!agentId || !subject || !body) {
       res.status(400).json({ error: 'agentId, subject, and body are required' });
@@ -83,14 +89,22 @@ router.post('/:teamId/mailbox', async (req: Request, res: Response) => {
       subject,
       body,
       replyToId,
+      attachments,
     });
 
+    // Build message for agent including attachment info
+    let prefixedMessage = `[Human Mail] Subject: ${subject}\n\n${body}`;
+    if (attachments && attachments.length > 0) {
+      const attachmentList = attachments.map(a => `- ${a.originalName} (${a.mimeType}, ${Math.round(a.size / 1024)}KB): /api/uploads/${a.filename}`).join('\n');
+      prefixedMessage += `\n\n[Attachments]\n${attachmentList}`;
+    }
+
     // Enqueue as a user message so the agent receives it
-    const prefixedMessage = `[Human Mail] Subject: ${subject}\n\n${body}`;
     try {
       await enqueueMessage(agentId, prefixedMessage, 'user', {
         mailMessageId: mail.id,
         fromHumanMail: true,
+        attachments,
       });
       notifyNewMessage(agentId);
     } catch {
@@ -110,6 +124,7 @@ router.post('/:teamId/mailbox', async (req: Request, res: Response) => {
           subject,
           direction: 'human_to_agent',
           messageId: mail.id,
+          hasAttachments: attachments && attachments.length > 0,
         },
       });
     } catch { /* best-effort */ }

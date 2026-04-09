@@ -13,13 +13,19 @@ import {
   ChevronDown,
   ChevronRight,
   Reply,
+  Paperclip,
+  Image,
+  FileText,
+  Loader2,
 } from 'lucide-react';
-import type { MailMessage } from '../types/agent';
+import type { MailMessage, FileAttachment } from '../types/agent';
 import {
   getMailbox,
   sendMailToAgent,
   markMailAsRead,
   markAllMailAsRead,
+  uploadFiles,
+  getAttachmentUrl,
 } from '../api/mailbox';
 import { getTeamMembers, type TeamMember } from '../api/teams';
 import { MarkdownContent } from '../utils/markdown';
@@ -133,6 +139,8 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
   const [composeAgentId, setComposeAgentId] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const { data: messages = [] } = useQuery<MailMessage[]>({
     queryKey: ['mailbox', teamId],
@@ -164,7 +172,7 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (data: { agentId: string; subject: string; body: string; replyToId?: string }) =>
+    mutationFn: (data: { agentId: string; subject: string; body: string; replyToId?: string; attachments?: FileAttachment[] }) =>
       sendMailToAgent(teamId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mailbox', teamId] });
@@ -173,6 +181,7 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
       setComposeAgentId('');
       setComposeSubject('');
       setComposeBody('');
+      setPendingFiles([]);
     },
   });
 
@@ -243,16 +252,56 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
     const subject = msg.subject.toLowerCase().startsWith('re:') ? msg.subject : `Re: ${msg.subject}`;
     setComposeSubject(subject);
     setComposeBody('');
+    setPendingFiles([]);
   };
 
-  const handleSend = () => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setPendingFiles((prev) => [...prev, ...files].slice(0, 5)); // Max 5 files
+    e.target.value = ''; // Reset input
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSend = async () => {
     if (!composeAgentId || !composeSubject.trim() || !composeBody.trim()) return;
+    if (isUploading || sendMutation.isPending) return;
+
+    let attachments: FileAttachment[] | undefined;
+
+    // Upload files first if any
+    if (pendingFiles.length > 0) {
+      setIsUploading(true);
+      try {
+        attachments = await uploadFiles(pendingFiles);
+      } catch (err) {
+        console.error('Failed to upload files:', err);
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    }
+
     sendMutation.mutate({
       agentId: composeAgentId,
       subject: composeSubject.trim(),
       body: composeBody.trim(),
       replyToId: replyToMessage?.id,
+      attachments,
     });
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  };
+
+  const isImageFile = (filename: string): boolean => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext);
   };
 
   return (
@@ -449,18 +498,71 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
                   />
                 </div>
 
+                {/* File attachments */}
+                <div>
+                  <label className="block text-xs text-[#4a4a5e] mb-1.5">Attachments</label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {pendingFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg text-sm"
+                      >
+                        {isImageFile(file.name) ? (
+                          <Image className="w-3.5 h-3.5 text-indigo-400" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-[#7a7a8e]" />
+                        )}
+                        <span className="text-[#e0e0e8] max-w-[150px] truncate">{file.name}</span>
+                        <span className="text-[#4a4a5e] text-xs">{formatFileSize(file.size)}</span>
+                        <button
+                          onClick={() => handleRemoveFile(idx)}
+                          className="p-0.5 text-[#4a4a5e] hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] border border-dashed border-[#2a2a4a] hover:border-indigo-500/50 rounded-lg cursor-pointer transition-all duration-200">
+                    <Paperclip className="w-3.5 h-3.5" />
+                    Add files
+                    <input
+                      type="file"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      accept="image/*,.pdf,.txt,.md,.json,.csv"
+                    />
+                  </label>
+                  <p className="mt-1 text-[10px] text-[#4a4a5e]">Max 5 files, 25MB each</p>
+                </div>
+
                 {/* Actions */}
                 <div className="flex items-center gap-3 pt-2">
                   <button
                     onClick={handleSend}
-                    disabled={!composeAgentId || !composeSubject.trim() || !composeBody.trim() || sendMutation.isPending}
+                    disabled={!composeAgentId || !composeSubject.trim() || !composeBody.trim() || sendMutation.isPending || isUploading}
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm rounded-xl hover:bg-indigo-500 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    {sendMutation.isPending ? 'Sending...' : 'Send'}
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : sendMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        Send{pendingFiles.length > 0 && ` (${pendingFiles.length} file${pendingFiles.length > 1 ? 's' : ''})`}
+                      </>
+                    )}
                   </button>
                   <button
-                    onClick={() => { setComposing(false); setReplyToMessage(null); }}
+                    onClick={() => { setComposing(false); setReplyToMessage(null); setPendingFiles([]); }}
                     className="px-4 py-2 text-sm text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-xl transition-all duration-200"
                   >
                     Cancel
@@ -547,6 +649,29 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
                             <div className="text-sm text-[#7a7a8e] mb-3">
                               <MarkdownContent text={msg.body} />
                             </div>
+
+                            {/* Attachments */}
+                            {msg.attachments && msg.attachments.length > 0 && (
+                              <div className="mb-3 flex flex-wrap gap-2">
+                                {msg.attachments.map((att) => (
+                                  <a
+                                    key={att.id}
+                                    href={getAttachmentUrl(att)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 px-3 py-2 bg-[#1a1a2e] border border-[#2a2a4a] rounded-lg text-sm hover:border-indigo-500/50 transition-colors"
+                                  >
+                                    {isImageFile(att.originalName) ? (
+                                      <Image className="w-4 h-4 text-indigo-400" />
+                                    ) : (
+                                      <FileText className="w-4 h-4 text-[#7a7a8e]" />
+                                    )}
+                                    <span className="text-[#e0e0e8] max-w-[150px] truncate">{att.originalName}</span>
+                                    <span className="text-[#4a4a5e] text-xs">{formatFileSize(att.size)}</span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
 
                             {/* Reply button (only for agent messages) */}
                             {msg.direction === 'agent_to_human' && (

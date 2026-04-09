@@ -99,6 +99,7 @@ export type CredentialStore = Record<string, Record<string, string>>;
 
 export interface SendMessageRequest {
   message: string;
+  attachments?: FileAttachment[];
 }
 
 export interface SessionInfo {
@@ -241,6 +242,15 @@ export interface CronRunRecord {
 
 export type MailDirection = 'agent_to_human' | 'human_to_agent';
 
+export interface FileAttachment {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  path: string;
+}
+
 export interface MailMessage {
   id: string;
   teamId: string;
@@ -254,6 +264,7 @@ export interface MailMessage {
   timestamp: string;
   replyToId?: string;
   metadata?: Record<string, unknown>;
+  attachments?: FileAttachment[];
 }
 
 // --- Runs (Timeline) ---

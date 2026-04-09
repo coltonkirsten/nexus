@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { MailMessage, MailDirection } from '../types/agent';
+import type { MailMessage, MailDirection, FileAttachment } from '../types/agent';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -9,6 +9,25 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// File upload API
+export async function uploadFiles(files: File[]): Promise<FileAttachment[]> {
+  const formData = new FormData();
+  files.forEach((file) => formData.append('files', file));
+
+  const response = await axios.post<{ attachments: FileAttachment[] }>(
+    `${API_BASE}/api/uploads`,
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }
+  );
+  return response.data.attachments;
+}
+
+export function getAttachmentUrl(attachment: FileAttachment): string {
+  return `${API_BASE}/api/uploads/${attachment.filename}`;
+}
 
 export interface GetMailboxOptions {
   direction?: MailDirection;
@@ -31,7 +50,7 @@ export async function getMailbox(teamId: string, options?: GetMailboxOptions): P
 
 export async function sendMailToAgent(
   teamId: string,
-  data: { agentId: string; subject: string; body: string; replyToId?: string }
+  data: { agentId: string; subject: string; body: string; replyToId?: string; attachments?: FileAttachment[] }
 ): Promise<MailMessage> {
   const response = await api.post<{ message: MailMessage }>(
     `/api/teams/${teamId}/mailbox`,

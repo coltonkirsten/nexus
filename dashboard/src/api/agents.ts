@@ -41,6 +41,25 @@ export async function sendMessage(agentId: string, data: SendMessageRequest): Pr
   await api.post(`/api/agents/${agentId}/messages`, data);
 }
 
+// Upload files for attachments (reused from mailbox)
+export async function uploadFiles(files: File[]): Promise<import('../types/agent').FileAttachment[]> {
+  const formData = new FormData();
+  files.forEach((file) => formData.append('files', file));
+
+  const response = await axios.post<{ attachments: import('../types/agent').FileAttachment[] }>(
+    `${API_BASE}/api/uploads`,
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }
+  );
+  return response.data.attachments;
+}
+
+export function getAttachmentUrl(filename: string): string {
+  return `${API_BASE}/api/uploads/${filename}`;
+}
+
 export async function startAgent(id: string): Promise<void> {
   await api.post(`/api/agents/${id}/start`);
 }

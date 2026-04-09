@@ -128,16 +128,6 @@ function OrchestratorInner() {
                 Volumes
               </NavLink>
               <NavLink
-                to="/demos"
-                className={({ isActive }) =>
-                  `text-xs transition-all duration-200 ${
-                    isActive ? 'text-indigo-400' : 'text-[#4a4a5e] hover:text-[#7a7a8e]'
-                  }`
-                }
-              >
-                Demos
-              </NavLink>
-              <NavLink
                 to="/settings"
                 className={({ isActive }) =>
                   `text-xs transition-all duration-200 ${
@@ -270,17 +260,6 @@ function OrchestratorInner() {
                 Volumes
               </NavLink>
               <NavLink
-                to="/demos"
-                onClick={closeMobileNav}
-                className={({ isActive }) =>
-                  `block px-3 py-2 text-sm rounded-lg transition-all duration-200 ${
-                    isActive ? 'text-indigo-400 bg-indigo-500/10' : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
-                  }`
-                }
-              >
-                Demos
-              </NavLink>
-              <NavLink
                 to="/settings"
                 onClick={closeMobileNav}
                 className={({ isActive }) =>
@@ -323,7 +302,7 @@ function OrchestratorInner() {
 
         {/* Left: Entity Navigator - hidden on mobile or when collapsed */}
         {!navigatorCollapsed && (
-          <div className="hidden md:block">
+          <div className="hidden md:flex h-full">
             <EntityNavigator
               agents={agents}
               teams={teams}

@@ -1044,7 +1044,12 @@ router.post('/:id/session/clear', async (req: Request, res: Response) => {
 router.post('/:id/messages', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { message, role = 'user', metadata } = req.body;
+    const { message, role = 'user', metadata, attachments } = req.body;
+
+    // Merge attachments into metadata so they're available to the agent
+    const enrichedMetadata = attachments?.length
+      ? { ...metadata, attachments }
+      : metadata;
 
     if (!message) {
       res.status(400).json({ error: 'Message is required' });
@@ -1081,7 +1086,7 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
     }
 
     // Record user message in queue
-    const enqueuedMessage = await enqueueMessage(id, message, role, metadata);
+    const enqueuedMessage = await enqueueMessage(id, message, role, enrichedMetadata);
 
     // Update lastActivity
     await updateAgent(id, { lastActivity: new Date().toISOString() });
