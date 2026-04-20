@@ -1,0 +1,5 @@
+# Overlay Dockerfile - applies compiled engine dist on top of existing nexus-cell:latest
+# Used when network TLS issues prevent a clean multi-stage rebuild from bookworm-slim.
+FROM nexus-cell:latest
+
+COPY --chown=agent:agent ./engine/dist/ /opt/engine/dist/

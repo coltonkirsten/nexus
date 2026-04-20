@@ -486,7 +486,7 @@ server.tool(
 
 server.tool(
   "card_manage",
-  "Manage kanban cards. Actions: create, get, update, delete, move. Defaults to your own team if teamId is omitted.",
+  "Manage kanban cards. Actions: create, get, update, delete, move. Defaults to your own team if teamId is omitted. To assign a card to a human, set assigneeName to the human's name (e.g. 'Colton') and leave assigneeId empty.",
   {
     action: z.enum(["create", "get", "update", "delete", "move"]).describe("The action to perform"),
     teamId: z.string().optional().describe("The team ID (defaults to your own team)"),
@@ -496,8 +496,8 @@ server.tool(
     title: z.string().optional().describe("Card title (required for create)"),
     description: z.string().optional().describe("Card description"),
     priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Card priority"),
-    assigneeId: z.string().optional().describe("Agent ID to assign the card to"),
-    assigneeName: z.string().optional().describe("Name of the assignee"),
+    assigneeId: z.string().optional().describe("Agent ID to assign the card to (omit when assigning to a human)"),
+    assigneeName: z.string().optional().describe("Name of the assignee. For humans, set this to the human's name (e.g. 'Colton') and leave assigneeId empty. For agents, pass their name here alongside assigneeId."),
     dueDate: z.string().optional().describe("Due date in ISO format"),
     labels: z.array(z.string()).optional().describe("Array of label strings"),
     position: z.number().optional().describe("Position in target column (for move)"),
@@ -607,7 +607,7 @@ server.tool(
         if (!args.columnOrder) return kanbanError("'columnOrder' is required for reorder action.");
         return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/columns/reorder`, {
           method: "POST",
-          body: { columnOrder: args.columnOrder },
+          body: { columnIds: args.columnOrder },
         });
       }
     }
