@@ -20,7 +20,18 @@ function TeamCard({ team, unreadCount = 0 }: { team: Team; unreadCount?: number 
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteTeam(team.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['teams'] });
+      const prev = queryClient.getQueryData<Team[]>(['teams']);
+      queryClient.setQueryData<Team[]>(['teams'], (old) =>
+        (old || []).filter((t) => t.id !== team.id)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['teams'], ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),
   });
 
   const formatDate = (dateStr: string) => {

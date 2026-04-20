@@ -606,11 +606,46 @@ export function TeamKanbanTab({ teamId }: TeamKanbanTabProps) {
     },
   });
 
-  // Move card mutation
+  // Move card mutation (optimistic)
   const moveCardMutation = useMutation({
     mutationFn: ({ cardId, targetColumnId, position }: { cardId: string; targetColumnId: string; position?: number }) =>
       moveCard(teamId, selectedBoardId!, cardId, targetColumnId, position),
-    onSuccess: () => {
+    onMutate: async ({ cardId, targetColumnId, position }) => {
+      const key = ['board', teamId, selectedBoardId];
+      await queryClient.cancelQueries({ queryKey: key });
+      const prev = queryClient.getQueryData<Board>(key);
+      if (prev) {
+        const next: Board = {
+          ...prev,
+          columns: prev.columns.map((c) => ({ ...c, cards: [...c.cards] })),
+        };
+        let moved: Card | undefined;
+        for (const col of next.columns) {
+          const idx = col.cards.findIndex((c) => c.id === cardId);
+          if (idx !== -1) {
+            moved = col.cards.splice(idx, 1)[0];
+            break;
+          }
+        }
+        if (moved) {
+          const target = next.columns.find((c) => c.id === targetColumnId);
+          if (target) {
+            const insertAt = position !== undefined && position >= 0 && position <= target.cards.length
+              ? position
+              : target.cards.length;
+            target.cards.splice(insertAt, 0, moved);
+          }
+        }
+        queryClient.setQueryData(key, next);
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(['board', teamId, selectedBoardId], ctx.prev);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['board', teamId, selectedBoardId] });
     },
   });

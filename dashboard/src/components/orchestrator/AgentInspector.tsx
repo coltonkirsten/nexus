@@ -74,21 +74,54 @@ export function AgentInspector({ agent }: { agent: Agent }) {
 
   const deleteMutation = useMutation({
     mutationFn: (deleteVols: boolean) => deleteAgent(agent.id, deleteVols),
-    onSuccess: () => {
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['agents'] });
+      const prev = queryClient.getQueryData<Agent[]>(['agents']);
+      queryClient.setQueryData<Agent[]>(['agents'], (old) =>
+        (old || []).filter((a) => a.id !== agent.id)
+      );
+      dispatch({ type: 'CLOSE_TAB_BY_ENTITY', payload: { entityId: agent.id } });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['agents'], ctx.prev);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       queryClient.invalidateQueries({ queryKey: ['volumes'] });
-      dispatch({ type: 'CLOSE_TAB_BY_ENTITY', payload: { entityId: agent.id } });
     },
   });
 
   const startMutation = useMutation({
     mutationFn: () => startAgent(agent.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['agents'] });
+      const prev = queryClient.getQueryData<Agent[]>(['agents']);
+      queryClient.setQueryData<Agent[]>(['agents'], (old) =>
+        (old || []).map((a) => (a.id === agent.id ? { ...a, status: 'starting' } : a))
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['agents'], ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
   });
 
   const stopMutation = useMutation({
     mutationFn: () => stopAgent(agent.id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['agents'] });
+      const prev = queryClient.getQueryData<Agent[]>(['agents']);
+      queryClient.setQueryData<Agent[]>(['agents'], (old) =>
+        (old || []).map((a) => (a.id === agent.id ? { ...a, status: 'stopping' } : a))
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['agents'], ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
   });
 
   const pauseMutation = useMutation({
