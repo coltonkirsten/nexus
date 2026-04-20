@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { OrchestratorPage } from './components/orchestrator/OrchestratorPage';
@@ -6,6 +7,8 @@ import { VolumesPage } from './components/VolumesPage';
 import { TeamsPage } from './components/TeamsPage';
 import { TeamDetailPage } from './components/TeamDetailPage';
 import { SettingsPage } from './components/SettingsPage';
+import { ShortcutCheatsheet } from './components/ShortcutCheatsheet';
+import { useGlobalKeyboardShortcuts, focusSearchInput } from './hooks/useKeyboardShortcuts';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,9 +23,16 @@ const queryClient = new QueryClient({
   },
 });
 
-function App() {
+function AppShell() {
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+
+  useGlobalKeyboardShortcuts({
+    onSlash: focusSearchInput,
+    onQuestionMark: () => setCheatsheetOpen(true),
+  });
+
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<OrchestratorPage />} />
@@ -33,6 +43,15 @@ function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </BrowserRouter>
+      <ShortcutCheatsheet isOpen={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
+    </>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell />
     </QueryClientProvider>
   );
 }

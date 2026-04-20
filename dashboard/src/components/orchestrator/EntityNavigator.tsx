@@ -299,6 +299,7 @@ export function EntityNavigator({ agents, teams, unreadCounts, isLoading, onEnti
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter..."
+            data-search-input
             className="w-full pl-8 pr-3 py-1.5 bg-[#0f0f18] border border-[#1e1e3a] rounded-lg text-xs text-[#e0e0e8] placeholder-[#4a4a5e] focus:outline-none focus:border-indigo-500 transition-all duration-200"
           />
         </div>
