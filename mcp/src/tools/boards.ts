@@ -198,7 +198,7 @@ export function registerBoardTools(server: McpServer): void {
           if (!columnOrder) return errorResponse("'columnOrder' is required for reorder action.");
           return apiCall(`/api/teams/${teamId}/boards/${boardId}/columns/reorder`, {
             method: "POST",
-            body: { columnOrder },
+            body: { columnIds: columnOrder },
           });
         }
       }
