@@ -98,7 +98,7 @@ export function ConversationTab({ agent }: ConversationTabProps) {
     queryKey: ['tokenStats', agent.id],
     queryFn: () => getTokenStats(agent.id),
     enabled: agent.status === 'running',
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 2000, // Refresh every 5 seconds
   });
 
   // Calculate context window usage percentage

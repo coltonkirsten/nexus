@@ -543,7 +543,7 @@ export function TeamKanbanTab({ teamId }: TeamKanbanTabProps) {
     queryKey: ['board', teamId, selectedBoardId],
     queryFn: () => getBoard(teamId, selectedBoardId!),
     enabled: !!selectedBoardId,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   // Auto-select first board

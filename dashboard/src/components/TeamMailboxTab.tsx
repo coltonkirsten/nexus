@@ -145,7 +145,7 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
   const { data: messages = [] } = useQuery<MailMessage[]>({
     queryKey: ['mailbox', teamId],
     queryFn: () => getMailbox(teamId),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: members = [] } = useQuery<TeamMember[]>({

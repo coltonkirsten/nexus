@@ -294,7 +294,7 @@ export function AgentOverview() {
   const { data: agents = [], isLoading, error } = useQuery<Agent[]>({
     queryKey: ['agents'],
     queryFn: listAgents,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const runningAgents = agents.filter(a => a.status === 'running');

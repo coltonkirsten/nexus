@@ -19,21 +19,21 @@ export function TeamDetailPage() {
   const { data: team, isLoading } = useQuery<Team>({
     queryKey: ['team', teamId],
     queryFn: () => getTeam(teamId!),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
     enabled: !!teamId,
   });
 
   const { data: members = [] } = useQuery({
     queryKey: ['team-members', teamId],
     queryFn: () => getTeamMembers(teamId!),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
     enabled: !!teamId,
   });
 
   const { data: mailboxUnread = 0 } = useQuery({
     queryKey: ['mailbox-unread', teamId],
     queryFn: () => getUnreadCount(teamId!),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
     enabled: !!teamId,
   });
 

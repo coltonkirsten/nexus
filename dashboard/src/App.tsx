@@ -12,6 +12,10 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60,
       retry: 2,
+      // Pause polling when the tab is hidden — saves network + CPU and
+      // avoids stacking requests while the user is elsewhere. Queries
+      // refetch immediately when the tab becomes visible again.
+      refetchIntervalInBackground: false,
     },
   },
 });

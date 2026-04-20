@@ -71,7 +71,7 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
   const { data: messages = [], isLoading } = useQuery<MailMessage[]>({
     queryKey: ['mailbox', teamId],
     queryFn: () => getMailbox(teamId),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const thread = useMemo(() => buildThread(messages, messageId), [messages, messageId]);

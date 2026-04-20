@@ -18,7 +18,7 @@ export function TeamAgentsTab({ teamId }: TeamAgentsTabProps) {
   const { data: members = [], isLoading } = useQuery<TeamMember[]>({
     queryKey: ['team-members', teamId],
     queryFn: () => getTeamMembers(teamId),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: allAgents = [] } = useQuery<Agent[]>({

@@ -298,7 +298,7 @@ export function VolumesPage() {
   const { data: volumes = [], isLoading, error } = useQuery({
     queryKey: ['volumes'],
     queryFn: () => listVolumes(),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: agents = [] } = useQuery({

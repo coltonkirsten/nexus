@@ -127,7 +127,7 @@ export function TeamInspector({ team }: { team: Team }) {
   const { data: members = [] } = useQuery<TeamMember[]>({
     queryKey: ['team-members', team.id],
     queryFn: () => getTeamMembers(team.id),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: unreadCount = 0 } = useQuery({

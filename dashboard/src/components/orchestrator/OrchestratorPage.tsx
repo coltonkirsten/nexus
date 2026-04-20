@@ -25,13 +25,13 @@ function OrchestratorInner() {
   const { data: agents = [], isLoading: agentsLoading } = useQuery<Agent[]>({
     queryKey: ['agents'],
     queryFn: listAgents,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: teams = [], isLoading: teamsLoading } = useQuery<Team[]>({
     queryKey: ['teams'],
     queryFn: listTeams,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: unreadCounts = {} } = useQuery<Record<string, number>>({

@@ -111,7 +111,7 @@ export function TeamsPage() {
   const { data: teams = [], isLoading, error } = useQuery<Team[]>({
     queryKey: ['teams'],
     queryFn: listTeams,
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   const { data: unreadCounts = {} } = useQuery<Record<string, number>>({

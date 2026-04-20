@@ -41,7 +41,7 @@ export function AgentDetailPage() {
   const { data: agent, isLoading } = useQuery<Agent>({
     queryKey: ['agent', agentId],
     queryFn: () => getAgent(agentId!),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
     enabled: !!agentId,
   });
 

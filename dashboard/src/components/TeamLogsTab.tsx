@@ -264,7 +264,7 @@ export function TeamLogsTab({ teamId }: TeamLogsTabProps) {
   const { data: events = [], isLoading, refetch, isFetching } = useQuery<TeamEvent[]>({
     queryKey: ['team-events', teamId],
     queryFn: () => getTeamEvents(teamId),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   });
 
   // Show newest first
