@@ -417,6 +417,203 @@ server.tool(
   }
 );
 
+// --- Kanban tools ---
+// Helper: call the NEXUS API and return an MCP content response.
+async function kanbanApiCall(path: string, init?: { method?: string; body?: unknown }) {
+  try {
+    const headers: Record<string, string> = {};
+    if (init?.body !== undefined) headers["Content-Type"] = "application/json";
+    const response = await fetch(`${NEXUS_API_URL}${path}`, {
+      method: init?.method || "GET",
+      headers,
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      return { content: [{ type: "text" as const, text: `Error: ${response.status} ${text}` }] };
+    }
+    // Pretty-print JSON if possible; otherwise return raw text.
+    try {
+      const parsed = JSON.parse(text);
+      return { content: [{ type: "text" as const, text: JSON.stringify(parsed, null, 2) }] };
+    } catch {
+      return { content: [{ type: "text" as const, text }] };
+    }
+  } catch (err) {
+    return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }] };
+  }
+}
+
+function kanbanError(msg: string) {
+  return { content: [{ type: "text" as const, text: `Error: ${msg}` }] };
+}
+
+server.tool(
+  "board_manage",
+  "Manage kanban boards for a team. Actions: list, get, create, delete. Defaults to your own team if teamId is omitted.",
+  {
+    action: z.enum(["list", "get", "create", "delete"]).describe("The action to perform"),
+    teamId: z.string().optional().describe("The team ID (defaults to your own team)"),
+    boardId: z.string().optional().describe("Board ID (required for get, delete)"),
+    name: z.string().optional().describe("Board name (required for create)"),
+    description: z.string().optional().describe("Board description (optional for create)"),
+  },
+  async (args) => {
+    const teamId = args.teamId || TEAM_ID;
+    if (!teamId) return kanbanError("No teamId provided and this agent has no TEAM_ID.");
+
+    switch (args.action) {
+      case "list":
+        return kanbanApiCall(`/api/teams/${teamId}/boards`);
+      case "get": {
+        if (!args.boardId) return kanbanError("'boardId' is required for get action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}`);
+      }
+      case "create": {
+        if (!args.name) return kanbanError("'name' is required for create action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards`, {
+          method: "POST",
+          body: { name: args.name, description: args.description },
+        });
+      }
+      case "delete": {
+        if (!args.boardId) return kanbanError("'boardId' is required for delete action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}`, { method: "DELETE" });
+      }
+    }
+  }
+);
+
+server.tool(
+  "card_manage",
+  "Manage kanban cards. Actions: create, get, update, delete, move. Defaults to your own team if teamId is omitted.",
+  {
+    action: z.enum(["create", "get", "update", "delete", "move"]).describe("The action to perform"),
+    teamId: z.string().optional().describe("The team ID (defaults to your own team)"),
+    boardId: z.string().describe("The board ID"),
+    cardId: z.string().optional().describe("Card ID (required for get, update, delete, move)"),
+    columnId: z.string().optional().describe("Column ID (required for create, move target)"),
+    title: z.string().optional().describe("Card title (required for create)"),
+    description: z.string().optional().describe("Card description"),
+    priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Card priority"),
+    assigneeId: z.string().optional().describe("Agent ID to assign the card to"),
+    assigneeName: z.string().optional().describe("Name of the assignee"),
+    dueDate: z.string().optional().describe("Due date in ISO format"),
+    labels: z.array(z.string()).optional().describe("Array of label strings"),
+    position: z.number().optional().describe("Position in target column (for move)"),
+  },
+  async (args) => {
+    const teamId = args.teamId || TEAM_ID;
+    if (!teamId) return kanbanError("No teamId provided and this agent has no TEAM_ID.");
+
+    switch (args.action) {
+      case "create": {
+        if (!args.columnId) return kanbanError("'columnId' is required for create action.");
+        if (!args.title) return kanbanError("'title' is required for create action.");
+        const body: Record<string, unknown> = { columnId: args.columnId, title: args.title };
+        if (args.description !== undefined) body.description = args.description;
+        if (args.priority !== undefined) body.priority = args.priority;
+        if (args.assigneeId !== undefined) body.assigneeId = args.assigneeId;
+        if (args.assigneeName !== undefined) body.assigneeName = args.assigneeName;
+        if (args.dueDate !== undefined) body.dueDate = args.dueDate;
+        if (args.labels !== undefined) body.labels = args.labels;
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/cards`, { method: "POST", body });
+      }
+      case "get": {
+        if (!args.cardId) return kanbanError("'cardId' is required for get action.");
+        const result = await kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}`);
+        const text = result.content[0]?.text || "";
+        if (!text.startsWith("Error:")) {
+          try {
+            const board = JSON.parse(text).board;
+            for (const col of board.columns) {
+              const card = col.cards.find((c: { id: string }) => c.id === args.cardId);
+              if (card) {
+                return {
+                  content: [{ type: "text" as const, text: JSON.stringify({ card, columnId: col.id, columnName: col.name }, null, 2) }],
+                };
+              }
+            }
+            return kanbanError(`Card '${args.cardId}' not found in board.`);
+          } catch {
+            return result;
+          }
+        }
+        return result;
+      }
+      case "update": {
+        if (!args.cardId) return kanbanError("'cardId' is required for update action.");
+        const body: Record<string, unknown> = {};
+        if (args.title !== undefined) body.title = args.title;
+        if (args.description !== undefined) body.description = args.description;
+        if (args.priority !== undefined) body.priority = args.priority;
+        if (args.assigneeId !== undefined) body.assigneeId = args.assigneeId;
+        if (args.assigneeName !== undefined) body.assigneeName = args.assigneeName;
+        if (args.dueDate !== undefined) body.dueDate = args.dueDate;
+        if (args.labels !== undefined) body.labels = args.labels;
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/cards/${args.cardId}`, { method: "PATCH", body });
+      }
+      case "delete": {
+        if (!args.cardId) return kanbanError("'cardId' is required for delete action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/cards/${args.cardId}`, { method: "DELETE" });
+      }
+      case "move": {
+        if (!args.cardId) return kanbanError("'cardId' is required for move action.");
+        if (!args.columnId) return kanbanError("'columnId' (target column) is required for move action.");
+        const body: Record<string, unknown> = { targetColumnId: args.columnId };
+        if (args.position !== undefined) body.position = args.position;
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/cards/${args.cardId}/move`, { method: "POST", body });
+      }
+    }
+  }
+);
+
+server.tool(
+  "column_manage",
+  "Manage kanban columns in a board. Actions: create, update, delete, reorder. Defaults to your own team if teamId is omitted.",
+  {
+    action: z.enum(["create", "update", "delete", "reorder"]).describe("The action to perform"),
+    teamId: z.string().optional().describe("The team ID (defaults to your own team)"),
+    boardId: z.string().describe("The board ID"),
+    columnId: z.string().optional().describe("Column ID (required for update, delete)"),
+    name: z.string().optional().describe("Column name (required for create)"),
+    position: z.number().optional().describe("Column position"),
+    columnOrder: z.array(z.string()).optional().describe("Array of column IDs in new order (for reorder)"),
+  },
+  async (args) => {
+    const teamId = args.teamId || TEAM_ID;
+    if (!teamId) return kanbanError("No teamId provided and this agent has no TEAM_ID.");
+
+    switch (args.action) {
+      case "create": {
+        if (!args.name) return kanbanError("'name' is required for create action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/columns`, {
+          method: "POST",
+          body: { name: args.name, position: args.position },
+        });
+      }
+      case "update": {
+        if (!args.columnId) return kanbanError("'columnId' is required for update action.");
+        const body: Record<string, unknown> = {};
+        if (args.name !== undefined) body.name = args.name;
+        if (args.position !== undefined) body.position = args.position;
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/columns/${args.columnId}`, { method: "PATCH", body });
+      }
+      case "delete": {
+        if (!args.columnId) return kanbanError("'columnId' is required for delete action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/columns/${args.columnId}`, { method: "DELETE" });
+      }
+      case "reorder": {
+        if (!args.columnOrder) return kanbanError("'columnOrder' is required for reorder action.");
+        return kanbanApiCall(`/api/teams/${teamId}/boards/${args.boardId}/columns/reorder`, {
+          method: "POST",
+          body: { columnOrder: args.columnOrder },
+        });
+      }
+    }
+  }
+);
+
 // Start the stdio transport
 async function main() {
   const transport = new StdioServerTransport();
