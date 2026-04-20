@@ -1,4 +1,35 @@
-import { createContext, useContext, useReducer, type ReactNode, type Dispatch } from 'react';
+import { createContext, useContext, useReducer, useEffect, type ReactNode, type Dispatch } from 'react';
+
+const STORAGE_KEY = 'nexus.orchestrator.nav';
+
+interface PersistedState {
+  inspectorCollapsed: boolean;
+  navigatorCollapsed: boolean;
+}
+
+function readPersisted(): PersistedState {
+  if (typeof window === 'undefined') return { inspectorCollapsed: false, navigatorCollapsed: false };
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { inspectorCollapsed: false, navigatorCollapsed: false };
+    const parsed = JSON.parse(raw);
+    return {
+      inspectorCollapsed: !!parsed.inspectorCollapsed,
+      navigatorCollapsed: !!parsed.navigatorCollapsed,
+    };
+  } catch {
+    return { inspectorCollapsed: false, navigatorCollapsed: false };
+  }
+}
+
+function writePersisted(state: PersistedState): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage may be unavailable (private mode, quota). Safe to ignore.
+  }
+}
 
 export type TabType = 'agent' | 'team';
 
@@ -118,7 +149,20 @@ function reducer(state: OrchestratorState, action: Action): OrchestratorState {
   }
 }
 
-const initialState: OrchestratorState = {
+function makeInitialState(): OrchestratorState {
+  const persisted = readPersisted();
+  return {
+    tabs: [],
+    activeTabId: null,
+    inspectorCollapsed: persisted.inspectorCollapsed,
+    navigatorCollapsed: persisted.navigatorCollapsed,
+    selectedEntityId: null,
+    selectedEntityType: null,
+    mobileNavOpen: false,
+  };
+}
+
+const OrchestratorContext = createContext<OrchestratorState>({
   tabs: [],
   activeTabId: null,
   inspectorCollapsed: false,
@@ -126,13 +170,19 @@ const initialState: OrchestratorState = {
   selectedEntityId: null,
   selectedEntityType: null,
   mobileNavOpen: false,
-};
-
-const OrchestratorContext = createContext<OrchestratorState>(initialState);
+});
 const OrchestratorDispatchContext = createContext<Dispatch<Action>>(() => {});
 
 export function OrchestratorProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
+
+  useEffect(() => {
+    writePersisted({
+      inspectorCollapsed: state.inspectorCollapsed,
+      navigatorCollapsed: state.navigatorCollapsed,
+    });
+  }, [state.inspectorCollapsed, state.navigatorCollapsed]);
+
   return (
     <OrchestratorContext.Provider value={state}>
       <OrchestratorDispatchContext.Provider value={dispatch}>
