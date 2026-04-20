@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   UserPlus,
@@ -21,6 +22,7 @@ import type { Agent, Team, TeamEvent, TeamEventType, MailMessage } from '../../t
 import { getTeamEvents } from '../../api/teams';
 import { getMailbox } from '../../api/mailbox';
 import { useOrchestratorDispatch } from './OrchestratorContext';
+import { InboxThreadDrawer } from './InboxThreadDrawer';
 
 // Status colors:
 // - Processing (running + isProcessing): pulsing green with glow
@@ -99,6 +101,7 @@ interface DashboardViewProps {
 
 export function DashboardView({ agents, teams }: DashboardViewProps) {
   const dispatch = useOrchestratorDispatch();
+  const [openThread, setOpenThread] = useState<{ teamId: string; messageId: string } | null>(null);
 
   // Fetch recent mail from all teams (limit 5 each)
   const { data: allMail = [] } = useQuery<MailMessage[]>({
@@ -188,16 +191,7 @@ export function DashboardView({ agents, teams }: DashboardViewProps) {
               {allMail.map((msg) => (
                 <button
                   key={msg.id}
-                  onClick={() =>
-                    dispatch({
-                      type: 'OPEN_TAB',
-                      payload: {
-                        tabType: 'team',
-                        entityId: msg.teamId,
-                        label: teamNameMap.get(msg.teamId) || 'Team',
-                      },
-                    })
-                  }
+                  onClick={() => setOpenThread({ teamId: msg.teamId, messageId: msg.id })}
                   className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#12121a] transition-all duration-150 text-left"
                 >
                   {!msg.read && msg.direction === 'agent_to_human' && (
@@ -218,6 +212,16 @@ export function DashboardView({ agents, teams }: DashboardViewProps) {
             </div>
           )}
         </div>
+      )}
+
+      {/* Thread drawer */}
+      {openThread && (
+        <InboxThreadDrawer
+          teamId={openThread.teamId}
+          teamName={teamNameMap.get(openThread.teamId) || 'Team'}
+          messageId={openThread.messageId}
+          onClose={() => setOpenThread(null)}
+        />
       )}
 
       {/* Activity Timeline */}
