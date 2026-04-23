@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
-import { Cpu, Plus, ChevronDown, Users, PlayCircle, StopCircle, Loader2, Menu, X, PanelRightOpen, PanelLeftOpen } from 'lucide-react';
+import { Cpu, Plus, ChevronDown, Users, PlayCircle, StopCircle, Loader2, Menu, X, PanelRightOpen, PanelLeftOpen, Command } from 'lucide-react';
 import type { Agent, Team } from '../../types/agent';
 import { listAgents, startAgent, stopAgent } from '../../api/agents';
 import { listTeams } from '../../api/teams';
@@ -10,6 +10,7 @@ import { OrchestratorProvider, useOrchestrator, useOrchestratorDispatch } from '
 import { EntityNavigator } from './EntityNavigator';
 import { WorkspaceTabs } from './WorkspaceTabs';
 import { InspectorPanel } from './InspectorPanel';
+import { CommandPalette } from './CommandPalette';
 import { CreateAgentModal } from '../CreateAgentModal';
 import { CreateTeamModal } from '../CreateTeamModal';
 
@@ -19,8 +20,20 @@ function OrchestratorInner() {
   const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
   const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
-  const { mobileNavOpen, inspectorCollapsed, navigatorCollapsed } = useOrchestrator();
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const { mobileNavOpen, inspectorCollapsed, inspectorPinned, navigatorCollapsed } = useOrchestrator();
   const dispatch = useOrchestratorDispatch();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<Agent[]>({
     queryKey: ['agents'],
@@ -108,16 +121,6 @@ function OrchestratorInner() {
                 Orchestrator
               </NavLink>
               <NavLink
-                to="/teams"
-                className={({ isActive }) =>
-                  `text-xs transition-all duration-200 ${
-                    isActive ? 'text-indigo-400' : 'text-[#4a4a5e] hover:text-[#7a7a8e]'
-                  }`
-                }
-              >
-                Teams
-              </NavLink>
-              <NavLink
                 to="/volumes"
                 className={({ isActive }) =>
                   `text-xs transition-all duration-200 ${
@@ -169,6 +172,15 @@ function OrchestratorInner() {
                 </button>
               </div>
             )}
+            {/* Command palette trigger */}
+            <button
+              onClick={() => setCommandPaletteOpen(true)}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[#7a7a8e] border border-[#1e1e3a] rounded-lg hover:text-[#e0e0e8] hover:border-[#2e2e4a] transition-all duration-200"
+              title="Command palette"
+            >
+              <Command className="w-3.5 h-3.5" />
+              <span className="font-mono text-[10px]">K</span>
+            </button>
             {/* Create dropdown */}
             <div className="relative">
               <button
@@ -236,17 +248,6 @@ function OrchestratorInner() {
                 }
               >
                 Orchestrator
-              </NavLink>
-              <NavLink
-                to="/teams"
-                onClick={closeMobileNav}
-                className={({ isActive }) =>
-                  `block px-3 py-2 text-sm rounded-lg transition-all duration-200 ${
-                    isActive ? 'text-indigo-400 bg-indigo-500/10' : 'text-[#7a7a8e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e]'
-                  }`
-                }
-              >
-                Teams
               </NavLink>
               <NavLink
                 to="/volumes"
@@ -320,8 +321,8 @@ function OrchestratorInner() {
           <InspectorPanel agents={agents} teams={teams} />
         </div>
 
-        {/* Expand button when inspector is collapsed */}
-        {inspectorCollapsed && (
+        {/* Expand button when inspector is collapsed (hidden when pinned — panel stays visible) */}
+        {inspectorCollapsed && !inspectorPinned && (
           <div className="hidden lg:flex items-start pt-2 pr-2 shrink-0 border-l border-[#1e1e3a]">
             <button
               onClick={() => dispatch({ type: 'TOGGLE_INSPECTOR' })}
@@ -341,6 +342,10 @@ function OrchestratorInner() {
       <CreateTeamModal
         isOpen={isCreateTeamOpen}
         onClose={() => setIsCreateTeamOpen(false)}
+      />
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
       />
     </div>
   );

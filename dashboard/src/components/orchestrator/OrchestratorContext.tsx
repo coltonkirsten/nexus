@@ -5,20 +5,22 @@ const STORAGE_KEY = 'nexus.orchestrator.nav';
 interface PersistedState {
   inspectorCollapsed: boolean;
   navigatorCollapsed: boolean;
+  inspectorPinned: boolean;
 }
 
 function readPersisted(): PersistedState {
-  if (typeof window === 'undefined') return { inspectorCollapsed: false, navigatorCollapsed: false };
+  if (typeof window === 'undefined') return { inspectorCollapsed: false, navigatorCollapsed: false, inspectorPinned: false };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { inspectorCollapsed: false, navigatorCollapsed: false };
+    if (!raw) return { inspectorCollapsed: false, navigatorCollapsed: false, inspectorPinned: false };
     const parsed = JSON.parse(raw);
     return {
       inspectorCollapsed: !!parsed.inspectorCollapsed,
       navigatorCollapsed: !!parsed.navigatorCollapsed,
+      inspectorPinned: !!parsed.inspectorPinned,
     };
   } catch {
-    return { inspectorCollapsed: false, navigatorCollapsed: false };
+    return { inspectorCollapsed: false, navigatorCollapsed: false, inspectorPinned: false };
   }
 }
 
@@ -45,6 +47,7 @@ export interface OrchestratorState {
   activeTabId: string | null;
   inspectorCollapsed: boolean;
   navigatorCollapsed: boolean;
+  inspectorPinned: boolean;
   selectedEntityId: string | null;
   selectedEntityType: TabType | null;
   mobileNavOpen: boolean;
@@ -56,6 +59,7 @@ type Action =
   | { type: 'SET_ACTIVE_TAB'; payload: { tabId: string | null } }
   | { type: 'TOGGLE_INSPECTOR' }
   | { type: 'TOGGLE_NAVIGATOR' }
+  | { type: 'TOGGLE_INSPECTOR_PIN' }
   | { type: 'SELECT_ENTITY'; payload: { entityId: string; entityType: TabType } }
   | { type: 'UPDATE_TAB_LABEL'; payload: { tabId: string; label: string } }
   | { type: 'CLOSE_TAB_BY_ENTITY'; payload: { entityId: string } }
@@ -123,6 +127,8 @@ function reducer(state: OrchestratorState, action: Action): OrchestratorState {
       return { ...state, inspectorCollapsed: !state.inspectorCollapsed };
     case 'TOGGLE_NAVIGATOR':
       return { ...state, navigatorCollapsed: !state.navigatorCollapsed };
+    case 'TOGGLE_INSPECTOR_PIN':
+      return { ...state, inspectorPinned: !state.inspectorPinned };
     case 'SELECT_ENTITY':
       return {
         ...state,
@@ -156,6 +162,7 @@ function makeInitialState(): OrchestratorState {
     activeTabId: null,
     inspectorCollapsed: persisted.inspectorCollapsed,
     navigatorCollapsed: persisted.navigatorCollapsed,
+    inspectorPinned: persisted.inspectorPinned,
     selectedEntityId: null,
     selectedEntityType: null,
     mobileNavOpen: false,
@@ -167,6 +174,7 @@ const OrchestratorContext = createContext<OrchestratorState>({
   activeTabId: null,
   inspectorCollapsed: false,
   navigatorCollapsed: false,
+  inspectorPinned: false,
   selectedEntityId: null,
   selectedEntityType: null,
   mobileNavOpen: false,
@@ -180,8 +188,9 @@ export function OrchestratorProvider({ children }: { children: ReactNode }) {
     writePersisted({
       inspectorCollapsed: state.inspectorCollapsed,
       navigatorCollapsed: state.navigatorCollapsed,
+      inspectorPinned: state.inspectorPinned,
     });
-  }, [state.inspectorCollapsed, state.navigatorCollapsed]);
+  }, [state.inspectorCollapsed, state.navigatorCollapsed, state.inspectorPinned]);
 
   return (
     <OrchestratorContext.Provider value={state}>

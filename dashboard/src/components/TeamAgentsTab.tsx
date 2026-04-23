@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { Plus, X, UserMinus, Loader2, Pause, Play } from 'lucide-react';
 import type { Agent } from '../types/agent';
 import { listAgents, pauseAgent, resumeAgent } from '../api/agents';
 import { getTeamMembers, addAgentToTeam, removeAgentFromTeam, type TeamMember } from '../api/teams';
+import { useOrchestratorDispatch } from './orchestrator/OrchestratorContext';
 
 interface TeamAgentsTabProps {
   teamId: string;
 }
 
 export function TeamAgentsTab({ teamId }: TeamAgentsTabProps) {
-  const navigate = useNavigate();
+  const dispatch = useOrchestratorDispatch();
   const queryClient = useQueryClient();
   const [showAddDropdown, setShowAddDropdown] = useState(false);
 
@@ -177,7 +177,12 @@ export function TeamAgentsTab({ teamId }: TeamAgentsTabProps) {
                 className={`flex items-center gap-3 px-4 py-3 bg-[#12121a] border rounded-xl hover:border-[#2a2a4a] transition-all duration-200 cursor-pointer ${
                   isPaused ? 'border-amber-500/30' : 'border-[#1e1e3a]'
                 }`}
-                onClick={() => navigate(`/agent/${member.id}`)}
+                onClick={() =>
+                  dispatch({
+                    type: 'OPEN_TAB',
+                    payload: { tabType: 'agent', entityId: member.id, label: member.name },
+                  })
+                }
               >
                 <div className={`w-2.5 h-2.5 rounded-full ${statusColors[member.status] || 'bg-[#4a4a5e]'} ${isRunning ? 'animate-pulse' : ''}`} />
                 <div className="flex-1 min-w-0">

@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-import { X, PanelRight } from 'lucide-react';
+import { X, PanelRight, ChevronRight } from 'lucide-react';
 import type { Agent, Team } from '../../types/agent';
 import { useOrchestrator, useOrchestratorDispatch } from './OrchestratorContext';
-import { ConversationTab } from '../ConversationTab';
-import { TeamMailboxTab } from '../TeamMailboxTab';
+import { AgentWorkspaceView } from './AgentWorkspaceView';
+import { TeamWorkspaceView } from './TeamWorkspaceView';
 import { DashboardView } from './DashboardView';
 
 const statusColors: Record<string, string> = {
@@ -103,6 +103,18 @@ export function WorkspaceTabs({ agents, teams }: WorkspaceTabsProps) {
         </div>
       )}
 
+      {/* Breadcrumbs */}
+      {activeTab && (
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[#1e1e3a] bg-[#0a0a0f]/60 shrink-0 text-[11px] text-[#4a4a5e]">
+          <span className="text-[#7a7a8e]">Orchestrator</span>
+          <ChevronRight className="w-3 h-3" />
+          <span className="text-indigo-400 font-medium">{activeTab.label}</span>
+          <span className="ml-2 text-[10px] text-[#4a4a5e] uppercase tracking-wider">
+            {activeTab.type}
+          </span>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-hidden">
         {!activeTab ? (
@@ -118,12 +130,22 @@ export function WorkspaceTabs({ agents, teams }: WorkspaceTabsProps) {
                   </div>
                 );
               }
-              return <ConversationTab agent={agent} />;
+              return <AgentWorkspaceView agent={agent} />;
             })()}
           </div>
         ) : (
           <div key={activeTab.entityId} className="h-full">
-            <TeamMailboxTab teamId={activeTab.entityId} />
+            {(() => {
+              const team = teams.find((t) => t.id === activeTab.entityId);
+              if (!team) {
+                return (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-[#4a4a5e] text-sm">Team not found</p>
+                  </div>
+                );
+              }
+              return <TeamWorkspaceView team={team} />;
+            })()}
           </div>
         )}
       </div>

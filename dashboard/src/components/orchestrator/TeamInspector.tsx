@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Users,
-  ExternalLink,
   Mail,
   UserPlus,
   UserMinus,
@@ -26,11 +24,12 @@ import {
   Pause,
 } from 'lucide-react';
 import type { Team, TeamEvent, TeamEventType } from '../../types/agent';
-import { getTeamMembers, getTeamEvents, getTeamSharedTree, type TeamMember } from '../../api/teams';
+import { getTeamMembers, getTeamEvents, getTeamSharedTree, deleteTeam, type TeamMember } from '../../api/teams';
 import type { FileEntry } from '../../api/agents';
 import { getUnreadCount, getMailbox } from '../../api/mailbox';
 import type { MailMessage } from '../../types/agent';
 import { useOrchestratorDispatch } from './OrchestratorContext';
+import { ConfirmModal } from '../ConfirmModal';
 
 const statusColors: Record<string, string> = {
   running: 'bg-emerald-400',
@@ -121,8 +120,18 @@ function FileTreeNode({ entry, depth = 0 }: { entry: FileEntry; depth?: number }
 }
 
 export function TeamInspector({ team }: { team: Team }) {
-  const navigate = useNavigate();
   const dispatch = useOrchestratorDispatch();
+  const queryClient = useQueryClient();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteTeam(team.id),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['teams'] });
+      dispatch({ type: 'CLOSE_TAB_BY_ENTITY', payload: { entityId: team.id } });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),
+  });
 
   const { data: members = [] } = useQuery<TeamMember[]>({
     queryKey: ['team-members', team.id],
@@ -172,13 +181,26 @@ export function TeamInspector({ team }: { team: Team }) {
           </span>
         </div>
         <button
-          onClick={() => navigate(`/team/${team.id}`)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] border border-[#1e1e3a] hover:border-[#2a2a4a] rounded-lg transition-all duration-200"
+          onClick={() => setShowDeleteConfirm(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 border border-red-800/50 hover:bg-red-500/10 rounded-lg transition-all duration-200"
         >
-          <ExternalLink className="w-3 h-3" />
-          Full View
+          <Trash2 className="w-3 h-3" />
+          Delete Team
         </button>
       </div>
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={() => {
+          setShowDeleteConfirm(false);
+          deleteMutation.mutate();
+        }}
+        title="Delete Team"
+        message={`Are you sure you want to delete "${team.name}"? The team must have no members. The team's shared drive volume will be removed.`}
+        confirmLabel="Delete"
+        variant="danger"
+      />
 
       {/* Members List */}
       <div className="bg-[#12121a] border border-[#1e1e3a] rounded-xl p-4">
@@ -248,11 +270,16 @@ export function TeamInspector({ team }: { team: Team }) {
           </div>
         )}
         <button
-          onClick={() => navigate(`/team/${team.id}/shared`)}
+          onClick={() =>
+            dispatch({
+              type: 'OPEN_TAB',
+              payload: { tabType: 'team', entityId: team.id, label: team.name },
+            })
+          }
           className="flex items-center gap-1.5 mt-2 text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors"
         >
-          <ExternalLink className="w-2.5 h-2.5" />
-          View Shared Drive
+          <HardDrive className="w-2.5 h-2.5" />
+          Open in workspace
         </button>
       </div>
 

@@ -17,6 +17,8 @@ import {
   Image,
   FileText,
   Loader2,
+  Bot,
+  User,
 } from 'lucide-react';
 import type { MailMessage, FileAttachment } from '../types/agent';
 import {
@@ -457,6 +459,41 @@ export function TeamMailboxTab({ teamId }: TeamMailboxTabProps) {
               </div>
 
               <div className="space-y-4">
+                {/* Prominent 'Replying to' card */}
+                {replyToMessage && (
+                  <div className="flex items-start gap-3 p-3 bg-indigo-500/5 border-l-2 border-indigo-400 rounded-r-lg">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                      replyToMessage.direction === 'agent_to_human'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : 'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {replyToMessage.direction === 'agent_to_human' ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Reply className="w-3 h-3 text-indigo-400" />
+                        <span className="text-sm font-medium text-[#e0e0e8]">
+                          Replying to {replyToMessage.direction === 'agent_to_human' ? replyToMessage.agentName : `You → ${replyToMessage.agentName}`}
+                        </span>
+                        <span className="text-[10px] text-[#4a4a5e]">
+                          {formatRelativeTime(replyToMessage.timestamp)}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[#7a7a8e] line-clamp-3 leading-relaxed">
+                        {replyToMessage.body.slice(0, 320)}
+                        {replyToMessage.body.length > 320 && '…'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setReplyToMessage(null)}
+                      className="p-1 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded transition-all duration-150 shrink-0"
+                      title="Clear reply target"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
                 {/* Agent selector */}
                 <div>
                   <label className="block text-xs text-[#4a4a5e] mb-1.5">To Agent</label>

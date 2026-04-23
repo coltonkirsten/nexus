@@ -1,24 +1,26 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import {
   Play,
   Square,
   Loader2,
-  ExternalLink,
   Clock,
+  Cog,
   Wrench,
   History,
   Timer,
   Trash2,
   RotateCw,
   Pause,
+  X,
 } from 'lucide-react';
 import type { Agent } from '../../types/agent';
 import { startAgent, stopAgent, deleteAgent, rebuildAgent, getAgentHistory, listCronJobs, pauseAgent, resumeAgent, type Invocation } from '../../api/agents';
 import { ConfirmModal } from '../ConfirmModal';
 import type { CronJob } from '../../types/agent';
 import { useOrchestratorDispatch } from './OrchestratorContext';
+import { SettingsTab } from '../SettingsTab';
+import { CronTab } from '../CronTab';
 
 const statusColors: Record<string, string> = {
   running: 'bg-emerald-400',
@@ -53,7 +55,6 @@ function formatTime(dateStr?: string) {
 }
 
 export function AgentInspector({ agent }: { agent: Agent }) {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const dispatch = useOrchestratorDispatch();
   const isRunning = agent.status === 'running';
@@ -63,6 +64,8 @@ export function AgentInspector({ agent }: { agent: Agent }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [deleteVolumesToo, setDeleteVolumesToo] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showCron, setShowCron] = useState(false);
 
   const rebuildMutation = useMutation({
     mutationFn: () => rebuildAgent(agent.id),
@@ -263,11 +266,18 @@ export function AgentInspector({ agent }: { agent: Agent }) {
             Rebuild
           </button>
           <button
-            onClick={() => navigate(`/agent/${agent.id}`)}
+            onClick={() => setShowSettings(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] border border-[#1e1e3a] hover:border-[#2a2a4a] rounded-lg transition-all duration-200"
           >
-            <ExternalLink className="w-3 h-3" />
-            Full View
+            <Cog className="w-3 h-3" />
+            Settings
+          </button>
+          <button
+            onClick={() => setShowCron(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-[#7a7a8e] hover:text-[#e0e0e8] border border-[#1e1e3a] hover:border-[#2a2a4a] rounded-lg transition-all duration-200"
+          >
+            <Clock className="w-3 h-3" />
+            Cron
           </button>
           <button
             onClick={() => setShowDeleteConfirm(true)}
@@ -423,6 +433,52 @@ export function AgentInspector({ agent }: { agent: Agent }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Settings overlay */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="relative w-full max-w-4xl h-[90vh] bg-[#0a0a0f] border border-[#1e1e3a] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#1e1e3a] shrink-0">
+              <div className="flex items-center gap-2">
+                <Cog className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-sm font-semibold text-[#e0e0e8]">Settings — {agent.name}</h3>
+              </div>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="p-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <SettingsTab agent={agent} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cron overlay */}
+      {showCron && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="relative w-full max-w-4xl h-[90vh] bg-[#0a0a0f] border border-[#1e1e3a] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#1e1e3a] shrink-0">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-sm font-semibold text-[#e0e0e8]">Cron — {agent.name}</h3>
+              </div>
+              <button
+                onClick={() => setShowCron(false)}
+                className="p-1.5 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded-lg transition-all duration-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <CronTab agent={agent} />
+            </div>
           </div>
         </div>
       )}

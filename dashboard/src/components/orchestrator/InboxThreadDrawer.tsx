@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -7,6 +7,8 @@ import {
   Send,
   Loader2,
   Reply,
+  Bot,
+  User,
 } from 'lucide-react';
 import type { MailMessage, FileAttachment } from '../../types/agent';
 import { getMailbox, sendMailToAgent, markMailAsRead } from '../../api/mailbox';
@@ -40,13 +42,11 @@ function buildThread(messages: MailMessage[], selectedId: string): MailMessage[]
   const selected = byId.get(selectedId);
   if (!selected) return [];
 
-  // Walk up to the root
   let root: MailMessage = selected;
   while (root.replyToId && byId.has(root.replyToId)) {
     root = byId.get(root.replyToId)!;
   }
 
-  // Collect any message whose chain leads back to root
   const inThread: MailMessage[] = [];
   for (const m of messages) {
     let cur: MailMessage | undefined = m;
@@ -66,7 +66,11 @@ function buildThread(messages: MailMessage[], selectedId: string): MailMessage[]
 export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: InboxThreadDrawerProps) {
   const queryClient = useQueryClient();
   const [replyBody, setReplyBody] = useState('');
+  const [selectedReplyId, setSelectedReplyId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: messages = [], isLoading } = useQuery<MailMessage[]>({
     queryKey: ['mailbox', teamId],
@@ -78,13 +82,21 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
   const root = thread[0];
   const latest = thread[thread.length - 1];
 
-  // Pick the agent to reply to: the most recent agent_to_human message in the thread.
-  const replyTarget = useMemo(() => {
+  // Default reply target: most recent agent_to_human message. User can override.
+  const defaultReplyTarget = useMemo(() => {
     for (let i = thread.length - 1; i >= 0; i--) {
       if (thread[i].direction === 'agent_to_human') return thread[i];
     }
     return latest;
   }, [thread, latest]);
+
+  const replyTarget = useMemo(() => {
+    if (selectedReplyId) {
+      const found = thread.find((m) => m.id === selectedReplyId);
+      if (found) return found;
+    }
+    return defaultReplyTarget;
+  }, [selectedReplyId, thread, defaultReplyTarget]);
 
   const markReadMutation = useMutation({
     mutationFn: (id: string) => markMailAsRead(teamId, id),
@@ -100,28 +112,25 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
       sendMailToAgent(teamId, data),
     onSuccess: () => {
       setReplyBody('');
+      setSelectedReplyId(null);
       queryClient.invalidateQueries({ queryKey: ['mailbox', teamId] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-unified-inbox'] });
     },
   });
 
-  // Mark unread agent_to_human messages as read when they appear in the drawer.
   useEffect(() => {
     for (const m of thread) {
       if (m.direction === 'agent_to_human' && !m.read) {
         markReadMutation.mutate(m.id);
       }
     }
-    // Only runs when thread contents change; marking is idempotent server-side.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread.length, thread.map((t) => t.id).join(',')]);
 
-  // Scroll to bottom when the thread changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thread.length]);
 
-  // Esc closes the drawer
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -129,6 +138,22 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
+
+  const handlePickReplyTarget = useCallback((msg: MailMessage) => {
+    setSelectedReplyId(msg.id);
+    const el = messageRefs.current.get(msg.id);
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    setHighlightId(msg.id);
+    window.setTimeout(() => setHighlightId(null), 2000);
+    // Focus composer
+    window.setTimeout(() => textareaRef.current?.focus(), 250);
+  }, []);
+
+  const handleDismissReplyTarget = () => {
+    setSelectedReplyId(null);
+  };
 
   const handleSend = () => {
     if (!replyTarget || !replyBody.trim() || sendMutation.isPending) return;
@@ -139,7 +164,7 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
       agentId: replyTarget.agentId,
       subject,
       body: replyBody.trim(),
-      replyToId: latest?.id,
+      replyToId: replyTarget.id,
     });
   };
 
@@ -149,6 +174,9 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
       handleSend();
     }
   };
+
+  const targetFromAgent = replyTarget?.direction === 'agent_to_human';
+  const targetAvatarColor = targetFromAgent ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400';
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -194,10 +222,24 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
             thread.map((msg, idx) => {
               const isFirst = idx === 0;
               const fromAgent = msg.direction === 'agent_to_human';
+              const isHighlighted = highlightId === msg.id;
+              const isReplyTarget = replyTarget?.id === msg.id;
               return (
                 <div
                   key={msg.id}
-                  className={`border border-[#1e1e3a] rounded-xl bg-[#0f0f18] ${isFirst ? '' : 'ml-4'}`}
+                  ref={(el) => {
+                    if (el) messageRefs.current.set(msg.id, el);
+                    else messageRefs.current.delete(msg.id);
+                  }}
+                  className={`border rounded-xl bg-[#0f0f18] transition-all duration-300 ${
+                    isFirst ? '' : 'ml-4'
+                  } ${
+                    isHighlighted
+                      ? 'border-indigo-400 ring-2 ring-indigo-400/40 shadow-lg shadow-indigo-500/20'
+                      : isReplyTarget
+                        ? 'border-indigo-500/40'
+                        : 'border-[#1e1e3a]'
+                  }`}
                 >
                   <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#1e1e3a]">
                     {fromAgent ? (
@@ -214,6 +256,15 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
                     <span className="ml-auto text-[10px] text-[#4a4a5e]">
                       {formatTime(msg.timestamp)}
                     </span>
+                    {fromAgent && (
+                      <button
+                        onClick={() => handlePickReplyTarget(msg)}
+                        className="p-1 text-[#4a4a5e] hover:text-indigo-400 hover:bg-indigo-500/10 rounded transition-all duration-150"
+                        title="Reply to this message"
+                      >
+                        <Reply className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                   <div className="px-4 py-3 text-sm text-[#c0c0d0]">
                     <MarkdownContent text={msg.body} />
@@ -228,24 +279,41 @@ export function InboxThreadDrawer({ teamId, teamName, messageId, onClose }: Inbo
         {/* Reply composer */}
         {replyTarget && (
           <div className="border-t border-[#1e1e3a] shrink-0">
-            {/* Parent preview */}
+            {/* Prominent 'Replying to' card */}
             <div className="px-5 pt-3 pb-2">
-              <div className="flex items-center gap-2 text-[10px] text-[#4a4a5e] mb-1.5">
-                <Reply className="w-3 h-3" />
-                Replying to <span className="text-[#7a7a8e]">{latest?.agentName}</span>
-                {latest && (
-                  <span className="text-[#4a4a5e]">• {formatTime(latest.timestamp)}</span>
+              <div className="flex items-start gap-3 p-3 bg-indigo-500/5 border-l-2 border-indigo-400 rounded-r-lg">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${targetAvatarColor}`}>
+                  {targetFromAgent ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Reply className="w-3 h-3 text-indigo-400" />
+                    <span className="text-sm font-medium text-[#e0e0e8]">
+                      Replying to {targetFromAgent ? replyTarget.agentName : `You → ${replyTarget.agentName}`}
+                    </span>
+                    <span className="text-[10px] text-[#4a4a5e]">
+                      {formatTime(replyTarget.timestamp)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-[#7a7a8e] line-clamp-3 leading-relaxed">
+                    {replyTarget.body.slice(0, 320)}
+                    {replyTarget.body.length > 320 && '…'}
+                  </p>
+                </div>
+                {selectedReplyId && (
+                  <button
+                    onClick={handleDismissReplyTarget}
+                    className="p-1 text-[#4a4a5e] hover:text-[#e0e0e8] hover:bg-[#1a1a2e] rounded transition-all duration-150 shrink-0"
+                    title="Clear reply target"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
-              {latest && (
-                <p className="text-[11px] text-[#4a4a5e] line-clamp-2 pl-4 border-l-2 border-[#1e1e3a]">
-                  {latest.body.slice(0, 240)}
-                  {latest.body.length > 240 && '…'}
-                </p>
-              )}
             </div>
             <div className="px-5 pb-4">
               <textarea
+                ref={textareaRef}
                 value={replyBody}
                 onChange={(e) => setReplyBody(e.target.value)}
                 onKeyDown={handleKeyDown}

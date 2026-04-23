@@ -1,4 +1,4 @@
-import { PanelRightClose, Search } from 'lucide-react';
+import { PanelRightClose, Search, Pin, PinOff } from 'lucide-react';
 import type { Agent, Team } from '../../types/agent';
 import { useOrchestrator, useOrchestratorDispatch } from './OrchestratorContext';
 import { AgentInspector } from './AgentInspector';
@@ -10,10 +10,11 @@ interface InspectorPanelProps {
 }
 
 export function InspectorPanel({ agents, teams }: InspectorPanelProps) {
-  const { inspectorCollapsed, selectedEntityId, selectedEntityType } = useOrchestrator();
+  const { inspectorCollapsed, inspectorPinned, selectedEntityId, selectedEntityType } = useOrchestrator();
   const dispatch = useOrchestratorDispatch();
 
-  if (inspectorCollapsed) return null;
+  // When pinned, the inspector stays visible even if user toggled it collapsed.
+  if (inspectorCollapsed && !inspectorPinned) return null;
 
   const selectedAgent =
     selectedEntityType === 'agent' && selectedEntityId
@@ -30,13 +31,26 @@ export function InspectorPanel({ agents, teams }: InspectorPanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1e1e3a] shrink-0">
         <span className="text-xs font-medium text-[#7a7a8e]">Inspector</span>
-        <button
-          onClick={() => dispatch({ type: 'TOGGLE_INSPECTOR' })}
-          className="p-1 text-[#4a4a5e] hover:text-[#7a7a8e] rounded transition-colors"
-          title="Collapse inspector"
-        >
-          <PanelRightClose className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => dispatch({ type: 'TOGGLE_INSPECTOR_PIN' })}
+            className={`p-1 rounded transition-colors ${
+              inspectorPinned
+                ? 'text-indigo-400 hover:text-indigo-300'
+                : 'text-[#4a4a5e] hover:text-[#7a7a8e]'
+            }`}
+            title={inspectorPinned ? 'Unpin inspector' : 'Pin inspector (always visible)'}
+          >
+            {inspectorPinned ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'TOGGLE_INSPECTOR' })}
+            className="p-1 text-[#4a4a5e] hover:text-[#7a7a8e] rounded transition-colors"
+            title="Collapse inspector"
+          >
+            <PanelRightClose className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -47,9 +61,16 @@ export function InspectorPanel({ agents, teams }: InspectorPanelProps) {
           <TeamInspector team={selectedTeam} />
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center">
+            <div className="text-center px-4">
               <Search className="w-8 h-8 mx-auto mb-2 text-[#1e1e3a]" />
-              <p className="text-xs text-[#4a4a5e]">Select an entity to inspect</p>
+              <p className="text-xs text-[#4a4a5e]">
+                {inspectorPinned
+                  ? 'Select an agent or team to inspect'
+                  : 'Select an entity to inspect'}
+              </p>
+              {inspectorPinned && (
+                <p className="text-[10px] text-[#4a4a5e] mt-2">Pinned</p>
+              )}
             </div>
           </div>
         )}
