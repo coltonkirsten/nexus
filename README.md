@@ -6,11 +6,13 @@ Agent Control System for orchestrating autonomous AI agents.
 
 ## What is NEXUS?
 
-NEXUS is a self-hosted platform for creating, managing, and orchestrating AI agents. It provides:
+NEXUS is a self-hosted platform for creating, managing, and orchestrating AI agents. Everything runs through a single **unified orchestrator** view:
 
-- **Agent Management**: Create, start, stop, and monitor AI agents
-- **Team Orchestration**: Group agents into teams for collaborative work
-- **Unified Inbox**: Centralized mailbox for agent communications
+- **Unified Orchestrator**: One workspace — a left navigator (agents + teams), center workspace tabs, and a right inspector. Create, start, stop, and monitor agents and teams without leaving the view (there are no separate agent/team pages).
+- **Cmd+K Command Palette**: Fuzzy-search jump to any agent, team, or page with arrow-key navigation.
+- **Workspace Tabs**: Open agents and teams as tabs. Agent tabs expose **Chat / Workspace / History** sub-tabs; team tabs expose **Mailbox / Members / Kanban / Shared / Logs / Timeline**.
+- **Inspector Pin**: A pinnable side panel (persisted across selection changes) for quick actions; agent **Settings** and **Cron** open as full-screen modals.
+- **Unified Inbox**: Centralized team mailbox with unread badges
 - **Kanban Boards**: Visual task management for teams
 - **Multiple Cell Types**: Support for Claude Code CLI, SDK-based agents, and more
 - **Credential Management**: Secure storage for API keys and OAuth tokens
@@ -88,13 +90,13 @@ The dashboard will be available at `http://localhost:5173` (or your configured p
 
 ### 4. Create Your First Agent
 
-1. Open the dashboard
-2. Click **+ Create** → **Agent**
+1. Open the dashboard — it lands on the **Orchestrator**: a left navigator, center workspace tabs, and a right inspector. Press **Cmd+K** anytime to jump to an agent, team, or page.
+2. Click **+ Create → New Agent**.
 3. Choose a cell type:
    - **CLI**: Full Claude Code capabilities (requires OAuth)
    - **SDK**: API-based agents (requires API key)
-4. Configure the agent's identity in the Ledger
-5. Click **Start**
+4. The agent opens as a workspace tab with **Chat / Workspace / History** sub-tabs. Its identity and memory live in the **ledger** — a per-agent Docker volume mounted at `/ledger` (`identity.md`, `memory/`, `skills/`) that's read into the system prompt on every run. Edit it from the inspector's **Settings**.
+5. Click **Start** (from the navigator or inspector) to launch the cell.
 
 ## Directory Structure
 
@@ -107,7 +109,8 @@ nexus/
 │   └── data/            # Runtime data (gitignored)
 ├── dashboard/           # React frontend
 │   └── src/
-│       ├── components/  # UI components
+│       ├── components/
+│       │   └── orchestrator/  # Navigator, workspace tabs, inspector, Cmd+K palette
 │       └── api/         # API client
 ├── cell/                # Agent container engine
 ├── templates/           # Agent templates
