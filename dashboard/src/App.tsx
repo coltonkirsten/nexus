@@ -27,7 +27,7 @@ function AppShell() {
 
   return (
     <>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
         <Routes>
           <Route path="/" element={<OrchestratorPage />} />
           <Route path="/volumes" element={<VolumesPage />} />

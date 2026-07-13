@@ -41,7 +41,32 @@ const app = express();
 const PORT = process.env.API_PORT || 3001;
 
 // Middleware
-app.use(cors());
+// CORS: the Nexus SPA is served from the auth-protected raven dashboard
+// (https://coltonkirsten.com/raven/nexus/) but calls this API cross-origin over
+// the tailnet (https://<host>.ts.net:8443). Reflect the dashboard origin (and
+// tailnet/localhost dev origins) with credentials enabled. The tailnet is the
+// real security boundary; this list is defense-in-depth, not the auth gate.
+const CORS_ALLOWED_ORIGINS = [
+  'https://coltonkirsten.com',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://100.109.10.50:5174',
+];
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // Non-browser / same-origin requests (no Origin header) are allowed.
+      if (!origin) return cb(null, true);
+      if (CORS_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      // Any tailnet origin (…​.ts.net, optionally with a port).
+      if (/^https?:\/\/[a-z0-9-]+\.[a-z0-9-]+\.ts\.net(?::\d+)?$/i.test(origin)) {
+        return cb(null, true);
+      }
+      return cb(null, false);
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // Health check
