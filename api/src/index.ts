@@ -34,6 +34,7 @@ import { handleTerminalConnection } from './services/terminal.js';
 import { initScheduler } from './services/cronScheduler.js';
 import { migrateFromEnv } from './services/credentials.js';
 import { startHealthCheckLoop } from './services/healthCheck.js';
+import { nexusAuth, wsTokenValid } from './middleware/nexusAuth.js';
 // OAuth sync disabled - using long-lived setup tokens instead
 // import { startOAuthSyncLoop } from './services/oauthSync.js';
 
@@ -69,7 +70,8 @@ app.use(
 );
 app.use(express.json());
 
-// Health check
+// Health check — intentionally UNGATED. Returns no data, used by local/tailnet
+// liveness probes. Everything below requires the Nexus access token.
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
@@ -77,6 +79,15 @@ app.get('/health', (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// ---- AUTH GATE ----
+// The API is publicly reachable via Tailscale Funnel. This middleware is the
+// security boundary: every route below is 401 unless the caller presents the
+// shared Nexus access token (REST: Authorization: Bearer; WS/SSE: ?token=).
+// The token is issued to browsers only after the dashboard's Google auth.
+// CORS preflight (OPTIONS) is handled + short-circuited by the cors() middleware
+// above, so it never reaches this gate.
+app.use(nexusAuth);
 
 // Routes
 app.use('/api/agents', agentsRouter);
@@ -142,6 +153,16 @@ const wss = new WebSocketServer({ noServer: true });
 // Handle WebSocket upgrade
 server.on('upgrade', (request, socket, head) => {
   const url = new URL(request.url || '', `http://localhost:${PORT}`);
+
+  // AUTH GATE for WebSocket upgrades. Browsers cannot set headers on a
+  // WebSocket, so the token rides the query string (?token=). Reject the
+  // upgrade before touching the terminal handler if it is missing/invalid.
+  if (!wsTokenValid(request.url, PORT)) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
   const match = url.pathname.match(/^\/api\/agents\/([^/]+)\/terminal$/);
 
   if (match) {
