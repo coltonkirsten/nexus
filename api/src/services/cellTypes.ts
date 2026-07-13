@@ -41,6 +41,7 @@ export const CELL_TYPES: CellTypeDefinition[] = [
     models: [
       { value: 'claude-fable-5', label: 'Fable 5 (Recommended — flagship)' },
       { value: 'claude-opus-4-8', label: 'Opus 4.8' },
+      { value: 'claude-sonnet-5', label: 'Sonnet 5' },
       { value: 'claude-opus-4-7', label: 'Opus 4.7' },
       { value: 'claude-opus-4-6', label: 'Opus 4.6' },
       { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
@@ -68,6 +69,7 @@ export const CELL_TYPES: CellTypeDefinition[] = [
     models: [
       { value: 'claude-fable-5', label: 'Fable 5 (Recommended — flagship)' },
       { value: 'claude-opus-4-8', label: 'Opus 4.8' },
+      { value: 'claude-sonnet-5', label: 'Sonnet 5' },
       { value: 'claude-opus-4-7', label: 'Opus 4.7' },
       { value: 'claude-opus-4-6', label: 'Opus 4.6' },
       { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
