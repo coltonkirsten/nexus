@@ -40,7 +40,10 @@ RUN mkdir -p /etc/apt/keyrings && \
     rm -rf /var/lib/apt/lists/*
 
 # Install claude CLI globally (used by CLI cell mode)
-RUN npm install -g @anthropic-ai/claude-code
+# Pinned to the version that fully supports the latest models (Fable 5 / Opus 4.8 / Sonnet 5).
+# 2026-07-13 (task 9932e31fe146): bumped 2.1.55 -> 2.1.207. Bump this ARG to upgrade.
+ARG CLAUDE_CODE_VERSION=2.1.207
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 # Install gemini CLI globally (used by Gemini cell mode)
 RUN npm install -g @google/gemini-cli
