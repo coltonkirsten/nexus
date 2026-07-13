@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { MailMessage, MailDirection, FileAttachment } from '../types/agent';
+import { attachTokenInterceptor, authHeaders, withToken } from './nexusToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -9,6 +10,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+attachTokenInterceptor(api);
 
 // File upload API
 export async function uploadFiles(files: File[]): Promise<FileAttachment[]> {
@@ -19,14 +21,15 @@ export async function uploadFiles(files: File[]): Promise<FileAttachment[]> {
     `${API_BASE}/api/uploads`,
     formData,
     {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': 'multipart/form-data', ...authHeaders() },
     }
   );
   return response.data.attachments;
 }
 
 export function getAttachmentUrl(attachment: FileAttachment): string {
-  return `${API_BASE}/api/uploads/${attachment.filename}`;
+  // <img>/download URLs can't carry headers — token rides the query string.
+  return withToken(`${API_BASE}/api/uploads/${attachment.filename}`);
 }
 
 export interface GetMailboxOptions {

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { Team, TeamEvent, Run, TimelineData } from '../types/agent';
 import type { FileEntry } from './agents';
+import { attachTokenInterceptor } from './nexusToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -10,6 +11,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+attachTokenInterceptor(api);
 
 export interface TeamMember {
   id: string;

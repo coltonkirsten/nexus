@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Volume, VolumeType } from '../types/agent';
+import { attachTokenInterceptor } from './nexusToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -9,6 +10,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+attachTokenInterceptor(api);
 
 export async function listVolumes(type?: VolumeType): Promise<Volume[]> {
   const params = type ? { type } : {};

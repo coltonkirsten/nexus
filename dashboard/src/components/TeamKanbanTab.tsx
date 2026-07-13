@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { authHeaders } from '../api/nexusToken';
 import {
   DndContext,
   DragOverlay,
@@ -77,14 +78,14 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // API functions
 async function getBoards(teamId: string): Promise<Board[]> {
-  const res = await fetch(`${API_URL}/api/teams/${teamId}/boards`);
+  const res = await fetch(`${API_URL}/api/teams/${teamId}/boards`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch boards');
   const data = await res.json();
   return data.boards;
 }
 
 async function getBoard(teamId: string, boardId: string): Promise<Board> {
-  const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}`);
+  const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch board');
   const data = await res.json();
   return data.board;
@@ -93,7 +94,7 @@ async function getBoard(teamId: string, boardId: string): Promise<Board> {
 async function createBoard(teamId: string, name: string, description?: string): Promise<Board> {
   const res = await fetch(`${API_URL}/api/teams/${teamId}/boards`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ name, description }),
   });
   if (!res.ok) throw new Error('Failed to create board');
@@ -104,6 +105,7 @@ async function createBoard(teamId: string, name: string, description?: string): 
 async function deleteBoard(teamId: string, boardId: string): Promise<void> {
   const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}`, {
     method: 'DELETE',
+    headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to delete board');
 }
@@ -117,7 +119,7 @@ async function createCard(
 ): Promise<Card> {
   const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}/cards`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ columnId, title, ...data }),
   });
   if (!res.ok) throw new Error('Failed to create card');
@@ -133,7 +135,7 @@ async function updateCard(
 ): Promise<Card> {
   const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}/cards/${cardId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error('Failed to update card');
@@ -144,6 +146,7 @@ async function updateCard(
 async function deleteCard(teamId: string, boardId: string, cardId: string): Promise<void> {
   const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}/cards/${cardId}`, {
     method: 'DELETE',
+    headers: authHeaders(),
   });
   if (!res.ok) throw new Error('Failed to delete card');
 }
@@ -157,7 +160,7 @@ async function moveCard(
 ): Promise<void> {
   const res = await fetch(`${API_URL}/api/teams/${teamId}/boards/${boardId}/cards/${cardId}/move`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ targetColumnId, position }),
   });
   if (!res.ok) throw new Error('Failed to move card');

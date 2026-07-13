@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { Agent, AgentConfig, CreateAgentRequest, SendMessageRequest, SessionInfo, CronJob, CronRunRecord, Schedule, CellTypeDefinition, CredentialStore } from '../types/agent';
+import { attachTokenInterceptor, authHeaders, withToken } from './nexusToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const WS_BASE = API_BASE.replace(/^http/, 'ws');
@@ -10,6 +11,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+attachTokenInterceptor(api);
 
 export async function listAgents(): Promise<Agent[]> {
   const response = await api.get<{ agents: Agent[] }>('/api/agents');
@@ -50,14 +52,15 @@ export async function uploadFiles(files: File[]): Promise<import('../types/agent
     `${API_BASE}/api/uploads`,
     formData,
     {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': 'multipart/form-data', ...authHeaders() },
     }
   );
   return response.data.attachments;
 }
 
 export function getAttachmentUrl(filename: string): string {
-  return `${API_BASE}/api/uploads/${filename}`;
+  // <img>/download URLs can't carry headers — token rides the query string.
+  return withToken(`${API_BASE}/api/uploads/${filename}`);
 }
 
 export async function startAgent(id: string): Promise<void> {
@@ -133,11 +136,13 @@ export async function stopMultipleAgents(
 }
 
 export function getLogsStreamUrl(agentId: string): string {
-  return `${API_BASE}/api/agents/${agentId}/logs`;
+  // SSE (EventSource) can't set headers — token rides the query string.
+  return withToken(`${API_BASE}/api/agents/${agentId}/logs`);
 }
 
 export function getTerminalWsUrl(agentId: string): string {
-  return `${WS_BASE}/api/agents/${agentId}/terminal`;
+  // WebSocket can't set headers — token rides the query string.
+  return withToken(`${WS_BASE}/api/agents/${agentId}/terminal`);
 }
 
 export async function updateAgentConfig(agentId: string, config: AgentConfig): Promise<Agent> {
